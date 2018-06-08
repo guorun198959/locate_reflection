@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<package format="2">
+    <name>catkin_startup</name>
+    <version>0.0.10</version>
+    <description>The catkinized Occupancy Grid Utils package</description>
+    <maintainer email="jservos@clearpathrobotics.com">jservos</maintainer>
+
+    <license>BSD</license>
+    <buildtool_depend>catkin</buildtool_depend>
+
+
+
+    <depend>nav_msgs</depend>
+    <depend>sensor_msgs</depend>
+    <depend>geometry_msgs</depend>
+    <depend>laser_geometry</depend>
+    <depend>roscpp</depend>
+    <depend>rospy</depend>
+    <depend>tf</depend>
+    <depend>tf2_bullet</depend>
+    <depend>message_runtime</depend>
+    <depend>eigen</depend>
+    <depend>cv_bridge</depend>
+    <depend>amcl</depend>
+
+
+
+
+</package>
