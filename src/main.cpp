@@ -182,7 +182,7 @@ public:
     ~Listener(){};
 
     template <class T>
-    boost::shared_ptr<T> createSubcriber(string topic, unsigned int buffer_size,boost::shared_ptr<T> data);
+    boost::shared_ptr<T> createSubcriber(string topic, unsigned int buffer_size,boost::shared_ptr<T> &data);
 //
     template <class T>
     std::shared_ptr<T>  getChat(string topic);
@@ -191,7 +191,7 @@ public:
     void callback(const typename T::ConstPtr &msg);
 
     template <class T>
-    void bindcallback(const typename T::ConstPtr &msg, boost::shared_ptr<T> data);
+    void bindcallback(const typename T::ConstPtr &msg, boost::shared_ptr<T> &data);
 //
 //    void callback(const sensor_msgs::LaserScanConstPtr &msg);
 //    void callback(const node::mytopicConstPtr &msg);
@@ -205,7 +205,9 @@ Listener::Listener(ros::NodeHandle nh, ros::NodeHandle nh_private) {
 }
 
 template <class T>
-boost::shared_ptr<T> Listener::createSubcriber(string topic, unsigned int buffer_size, boost::shared_ptr<T> data) {
+boost::shared_ptr<T> Listener::createSubcriber(string topic, unsigned int buffer_size, boost::shared_ptr<T> &data) {
+    boost::shared_ptr<node::mytopic> data_ptr = boost::shared_ptr<node::mytopic>(new T());
+
     ros::Subscriber chat_func_sub = nh_.subscribe<T>(topic, buffer_size, boost::bind(&Listener::bindcallback<T>, this,  _1,data));
 
 
@@ -240,11 +242,10 @@ void Listener::callback(const typename T::ConstPtr &msg) {
 }
 
 template <class T>
-void Listener::bindcallback(const typename T::ConstPtr &msg, boost::shared_ptr<T> data) {
+void Listener::bindcallback(const typename T::ConstPtr &msg, boost::shared_ptr<T> &data) {
 
 
-//    data = *msg;
-    data = boost::make_shared<T>(*msg);
+    data->cmd.data = "233" + msg->cmd.data;
 
     ROS_INFO("receive msg,bind %s",msg->cmd.data.c_str());
 
@@ -285,9 +286,11 @@ int main(int argc, char **argv) {
 #endif
     Listener l(nh,nh_private);
     std::shared_ptr<node::mytopic> p1 = l.getChat<node::mytopic>("chat");
-    ROS_INFO("%s",p1.get()->cmd.data.c_str());
+    if (p1)
+        ROS_INFO("%s",p1.get()->cmd.data.c_str());
     node::mytopic msg;
-    boost::shared_ptr<node::mytopic> data(&msg);
+    boost::shared_ptr<node::mytopic> data = boost::shared_ptr<node::mytopic>(new node::mytopic());
+    data->cmd.data = "sd";
     ros::spinOnce();
     l.createSubcriber<node::mytopic>("chat",2,data);
 
@@ -295,16 +298,19 @@ int main(int argc, char **argv) {
     int i=0;
     while (ros::ok()){
         i++;
+        chat_pub.publish(msg);
+
 
         char tmp[200];
         sprintf(tmp,"start %d",i);
         msg.cmd.data =string(tmp) ;
         ros::spinOnce();
 
-        ROS_INFO("local receive %s",data.get()->cmd.data.c_str());
+        if(data){
+            ROS_INFO("local receive %s",data.get()->cmd.data.c_str());
+        }
 
 
-        chat_pub.publish(msg);
         rate.sleep();
         ros::spinOnce();
 
