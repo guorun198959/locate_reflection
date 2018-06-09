@@ -28,161 +28,24 @@ using std::string;
 using std::map;
 namespace node=catkin_startup;
 
-// function callback
-void chat_func_cbk(const node::mytopic::ConstPtr &msg){
-    std::string log;
-    std::string func_name = __FUNCTION__;
-    func_name = ", called function: " + func_name;
-    log = "get msg: " + msg->cmd.data + func_name;
-    ROS_INFO("%s ",log.c_str());
-}
-// class function callback
-class Chatter{
-private:
-    ros::NodeHandle nh_;
-    ros::NodeHandle nh_private_;
-
-    //**** ros node member
-    // topic pub and sub
-    ros::Subscriber chat_sub_;
-    ros::Publisher chat_pub_;
-    // filter
-
-    // service
-    ros::ServiceServer chat_service_;
-    ros::ServiceClient chat_service__client_;
-    //Persistent Connections client
-    ros::ServiceClient persistent_client_;
-
-
-    // call back queue
-    ros::CallbackQueue queue;
-
-
-
-
-
-    //**** method
-    void init_params();
-
-public:
-    Chatter(ros::NodeHandle nh, ros::NodeHandle nh_private):nh_(nh), nh_private_(nh_private){
-
-//        nh_.setCallbackQueue(&queue);
-
-        // topic
-        chat_sub_ = nh_.subscribe("chat",2,&Chatter::chat_func_cbk,this);
-        chat_pub_ = nh_.advertise<node::mytopic>("chat2",2);
-
-        // service
-        chat_service_ = nh_.advertiseService("chat_service", &Chatter::chat_service_cbk, this);
-
-        chat_service__client_ = nh_.serviceClient<node::myservice>("chat_service");
-        //Persistent Connections client
-        persistent_client_ = nh_.serviceClient<node::myservice>("chat_service", true);
-
-
-
-
-
-    }
-    void chat_func_cbk(const node::mytopic::ConstPtr &msg){
-        std::string log;
-        std::string func_name = __FUNCTION__;
-        func_name = ", called function: " + func_name;
-        log = "Chatter get msg: " + msg->cmd.data + func_name;
-        ROS_INFO("%s ",log.c_str());
-
-        tf::StampedTransform(tf::Transform(tf::Quaternion(0, 0, 0, 1), tf::Vector3(0.1, 0.0, 0.2)),
-                             ros::Time::now(),"base_link", "base_laser");
-
-
-
-    }
-    bool chat_service_cbk(node::myservice::Request& req,
-                          node::myservice::Response& res){
-        std::string log;
-        std::string func_name = __FUNCTION__;
-        func_name = ", called function: " + func_name;
-        log = "Chatter service get msg: " + req.cmd.data+ func_name;
-        ROS_INFO("%s ",log.c_str());
-        res.success = true;
-        return true;
-
-    }
-
-    void call_service(){
-        // call service demo
-        node::myservice srv;
-        srv.request.cmd.data = "call service";
-        ROS_INFO("call service");
-
-        // call service
-        //1)bare way  without nodehandle
-        // ros::service::call("chat_service", srv)
-        //2) with nodehandle
-        if (chat_service__client_.exists()){
-            ROS_INFO("exists service");
-
-            if (chat_service__client_.call(srv))
-            {
-                ROS_INFO(" call service ok!: %ld", (long int)srv.response.success);
-            }
-            else
-            {
-                ROS_ERROR("Failed to call service set_filter");
-            }
-        }
-
-        //with persistent services, you can tell if the connection failed by testing the handle:
-        if (persistent_client_)
-        {
-
-        }
-    }
-};
-
-
-// class member function callback
-class Reflection_Detector{
-private:
-    ros::NodeHandle nh_;
-    ros::NodeHandle nh_private_;
-
-    // method
-    //filter laserscan with tf
-
-    //lookup tf
-
-    // transform laser frame to map frame
-
-    // get prepare configuration board position file
-
-
-    // nearest neighbor search, fake board rejection
-
-    // compute relative pose change
-
-    // update map to odom tf
-
-    // forward map_odom tf from amcl
-
-};
 
 class Listener{
 private:
     ros::NodeHandle nh_;
     ros::NodeHandle nh_private_;
     vector<ros::Subscriber> subscribers_;
-    map<string, const ros::CallbackQueue &> callbackqueue_;
+    map<string, boost::shared_ptr<ros::CallbackQueue>> callbackqueue_;
+    map<string, bool> topic_update_;
     bool updated_;
     node::mytopic tmp_data;
+    ros::CallbackQueue queue;
+
 public:
     Listener(ros::NodeHandle nh,ros::NodeHandle nh_private);
     ~Listener(){};
 
     template <class T>
-    boost::shared_ptr<T> createSubcriber(string topic, unsigned int buffer_size,boost::shared_ptr<T> &data);
+    boost::shared_ptr<T> createSubcriber(string topic, unsigned int buffer_size);
 //
     template <class T>
     std::shared_ptr<T>  getChat(string topic);
@@ -192,6 +55,8 @@ public:
 
     template <class T>
     void bindcallback(const typename T::ConstPtr &msg, boost::shared_ptr<T> &data);
+
+    bool getOneMessage(string topic, double wait);
 //
 //    void callback(const sensor_msgs::LaserScanConstPtr &msg);
 //    void callback(const node::mytopicConstPtr &msg);
@@ -205,18 +70,32 @@ Listener::Listener(ros::NodeHandle nh, ros::NodeHandle nh_private) {
 }
 
 template <class T>
-boost::shared_ptr<T> Listener::createSubcriber(string topic, unsigned int buffer_size, boost::shared_ptr<T> &data) {
-    boost::shared_ptr<node::mytopic> data_ptr = boost::shared_ptr<node::mytopic>(new T());
+boost::shared_ptr<T> Listener::createSubcriber(string topic, unsigned int buffer_size) {
+    topic_update_[topic] = false;
 
-    ros::Subscriber chat_func_sub = nh_.subscribe<T>(topic, buffer_size, boost::bind(&Listener::bindcallback<T>, this,  _1,data));
+//    boost::shared_ptr<T> data_ptr = boost::shared_ptr<T>(new T());
+
+    // use make_shared whenever you can (i.e. when you don't need a custom deleter
+    boost::shared_ptr<T> data_ptr(boost::make_shared<T>());
+
+    // create new nodehandler
+    ros::NodeHandle n;
+    boost::shared_ptr<ros::CallbackQueue> q(boost::make_shared<ros::CallbackQueue>());
+    n.setCallbackQueue(q.get());
+
+
+
+
+    ros::Subscriber chat_func_sub = n.subscribe<T>(topic, buffer_size, boost::bind(&Listener::bindcallback<T>, this,  _1,data_ptr));
+
 
 
 //    ros::Subscriber chat_func_sub = nh_.subscribe(topic, 2, &Listener::callback<T>, this);
 
     subscribers_.push_back(chat_func_sub);
+    callbackqueue_[topic] = q;
 
-    boost::shared_ptr<T> p(boost::make_shared<T>(tmp_data));
-    return p;
+    return data_ptr;
 
 }
 
@@ -247,10 +126,28 @@ void Listener::bindcallback(const typename T::ConstPtr &msg, boost::shared_ptr<T
 
     data->cmd.data = "233" + msg->cmd.data;
 
-    ROS_INFO("receive msg,bind %s",msg->cmd.data.c_str());
+    ROS_INFO_STREAM(*msg);
 
     updated_ = true;
+
 }
+
+bool Listener::getOneMessage(string topic, double wait) {
+    topic_update_[topic] = false;
+    updated_ = false;
+    if (wait > 0){
+        callbackqueue_[topic].get()->callAvailable(ros::WallDuration(wait));
+        if (!updated_)
+            return false;
+
+    }
+    if (wait < 0 && !updated_){
+        callbackqueue_[topic].get()->callAvailable(ros::WallDuration(0.01));
+        ros::Rate(100);
+    }
+    return true;
+}
+
 //void Listener::callback(const sensor_msgs::LaserScanConstPtr &msg) {
 ////    data = *msg;
 //
@@ -274,25 +171,16 @@ int main(int argc, char **argv) {
     //**** topic
     // publish on o topic
     ros::Publisher chat_pub = nh.advertise<node::mytopic>("chat",1);
-#if 0
 
-    // listen on a topic,
-    // 1)register a function as callback
-    ros::Subscriber chat_func_sub = nh.subscribe("chat",2,chat_func_cbk);
-    // 2)register class member function
-    Chatter chatter(nh,nh_private);
-    ros::Subscriber chat_class_sub = nh.subscribe("chat",2,&Chatter::chat_func_cbk, &chatter);
-    // 3)register call member function in constructor, see Chatter constructor
-#endif
     Listener l(nh,nh_private);
     std::shared_ptr<node::mytopic> p1 = l.getChat<node::mytopic>("chat");
     if (p1)
         ROS_INFO("%s",p1.get()->cmd.data.c_str());
     node::mytopic msg;
-    boost::shared_ptr<node::mytopic> data = boost::shared_ptr<node::mytopic>(new node::mytopic());
-    data->cmd.data = "sd";
+//    boost::shared_ptr<node::mytopic> data = boost::shared_ptr<node::mytopic>(new node::mytopic());
+//    data->cmd.data = "sd";
     ros::spinOnce();
-    l.createSubcriber<node::mytopic>("chat",2,data);
+    boost::shared_ptr<node::mytopic> data = l.createSubcriber<node::mytopic>("chat",2);
 
     ros::Rate rate(10);
     int i=0;
@@ -306,6 +194,7 @@ int main(int argc, char **argv) {
         msg.cmd.data =string(tmp) ;
         ros::spinOnce();
 
+        l.getOneMessage("chat",0.1);
         if(data){
             ROS_INFO("local receive %s",data.get()->cmd.data.c_str());
         }
