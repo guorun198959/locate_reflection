@@ -16,3 +16,7 @@ sensor_msgs geometry_msgs nav_msgs tf roscpp
 6.message callback queue
 
 7.mutil threading
+
+8.nodelet
+
+9.plugins.

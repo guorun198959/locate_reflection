@@ -1,6 +1,6 @@
 #include <iostream>
 #include <chrono>
-
+#include <boost/bind.hpp>
 // node msg and srv
 #include <catkin_startup/mytopic.h>
 #include <catkin_startup/myservice.h>
@@ -18,10 +18,14 @@
 #include <geometry_msgs/Point.h>
 #include <tf/tf.h>
 
+#include <XmlRpc.h>
+
 #include <vector>
 #include <string>
+#include <map>
 using std::vector;
 using std::string;
+using std::map;
 namespace node=catkin_startup;
 
 // function callback
@@ -165,8 +169,99 @@ private:
 
 };
 
+class Listener{
+private:
+    ros::NodeHandle nh_;
+    ros::NodeHandle nh_private_;
+    vector<ros::Subscriber> subscribers_;
+    map<string, const ros::CallbackQueue &> callbackqueue_;
+    bool updated_;
+    node::mytopic tmp_data;
+public:
+    Listener(ros::NodeHandle nh,ros::NodeHandle nh_private);
+    ~Listener(){};
+
+    template <class T>
+    boost::shared_ptr<T> createSubcriber(string topic, unsigned int buffer_size,boost::shared_ptr<T> data);
+//
+    template <class T>
+    std::shared_ptr<T>  getChat(string topic);
+
+    template <class T>
+    void callback(const typename T::ConstPtr &msg);
+
+    template <class T>
+    void bindcallback(const typename T::ConstPtr &msg, boost::shared_ptr<T> data);
+//
+//    void callback(const sensor_msgs::LaserScanConstPtr &msg);
+//    void callback(const node::mytopicConstPtr &msg);
 
 
+};
+
+Listener::Listener(ros::NodeHandle nh, ros::NodeHandle nh_private) {
+    updated_ = false;
+
+}
+
+template <class T>
+boost::shared_ptr<T> Listener::createSubcriber(string topic, unsigned int buffer_size, boost::shared_ptr<T> data) {
+    ros::Subscriber chat_func_sub = nh_.subscribe<T>(topic, buffer_size, boost::bind(&Listener::bindcallback<T>, this,  _1,data));
+
+
+//    ros::Subscriber chat_func_sub = nh_.subscribe(topic, 2, &Listener::callback<T>, this);
+
+    subscribers_.push_back(chat_func_sub);
+
+    boost::shared_ptr<T> p(boost::make_shared<T>(tmp_data));
+    return p;
+
+}
+
+template <class T>
+std::shared_ptr<T>  Listener::getChat(string topic){
+    T data;
+    data.cmd.data = topic;
+
+    std::shared_ptr<T> p1 = std::make_shared<T>(data);
+    return  p1;
+
+}
+
+//template namespace
+template <class T>
+void Listener::callback(const typename T::ConstPtr &msg) {
+//    data = *msg;
+
+    ROS_INFO("receive msg.simple");
+
+    updated_ = true;
+
+}
+
+template <class T>
+void Listener::bindcallback(const typename T::ConstPtr &msg, boost::shared_ptr<T> data) {
+
+
+//    data = *msg;
+    data = boost::make_shared<T>(*msg);
+
+    ROS_INFO("receive msg,bind %s",msg->cmd.data.c_str());
+
+    updated_ = true;
+}
+//void Listener::callback(const sensor_msgs::LaserScanConstPtr &msg) {
+////    data = *msg;
+//
+//    updated_ = true;
+//
+//}
+//void Listener::callback(const node::mytopicConstPtr &msg) {
+////    data = *msg;
+//
+//    updated_ = true;
+
+//}
 
 int main(int argc, char **argv) {
     std::cout << "Hello, World!" << std::endl;
@@ -178,6 +273,7 @@ int main(int argc, char **argv) {
     //**** topic
     // publish on o topic
     ros::Publisher chat_pub = nh.advertise<node::mytopic>("chat",1);
+#if 0
 
     // listen on a topic,
     // 1)register a function as callback
@@ -186,12 +282,27 @@ int main(int argc, char **argv) {
     Chatter chatter(nh,nh_private);
     ros::Subscriber chat_class_sub = nh.subscribe("chat",2,&Chatter::chat_func_cbk, &chatter);
     // 3)register call member function in constructor, see Chatter constructor
-
+#endif
+    Listener l(nh,nh_private);
+    std::shared_ptr<node::mytopic> p1 = l.getChat<node::mytopic>("chat");
+    ROS_INFO("%s",p1.get()->cmd.data.c_str());
+    node::mytopic msg;
+    boost::shared_ptr<node::mytopic> data(&msg);
+    ros::spinOnce();
+    l.createSubcriber<node::mytopic>("chat",2,data);
 
     ros::Rate rate(10);
+    int i=0;
     while (ros::ok()){
-        node::mytopic msg;
-        msg.cmd.data = "start";
+        i++;
+
+        char tmp[200];
+        sprintf(tmp,"start %d",i);
+        msg.cmd.data =string(tmp) ;
+        ros::spinOnce();
+
+        ROS_INFO("local receive %s",data.get()->cmd.data.c_str());
+
 
         chat_pub.publish(msg);
         rate.sleep();
@@ -200,9 +311,7 @@ int main(int argc, char **argv) {
     }
 
     // test code
-    tf::TransformListener tf_;
-    geometry_msgs::PointStamped p;
-    tf_.transformPoint("base",p,p);
+
 
 
     return 0;
