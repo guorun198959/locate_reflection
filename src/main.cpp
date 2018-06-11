@@ -70,7 +70,7 @@ int main(int argc, char **argv) {
 #endif
     //filter
     auto res2 = l.createSubcriberFilteredTf<node::mytopic>("chat",2,"map");
-    boost::shared_ptr<node::mytopic> data = std::get<0>(res2);
+    std::shared_ptr<node::mytopic> data = std::get<0>(res2);
 
 
     ros::Rate rate(10);

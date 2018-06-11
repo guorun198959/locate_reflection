@@ -33,7 +33,7 @@ namespace util {
         ros::NodeHandle nh_private_;
 
         //call callback_queue given specific topic
-        map<string, boost::shared_ptr<ros::CallbackQueue>> callbackqueue_;
+        map<string, std::shared_ptr<ros::CallbackQueue>> callbackqueue_;
 
         tf::TransformListener *tf_;
 
@@ -55,11 +55,11 @@ namespace util {
          * return tuple < shared_ptr, subscriber>
          * */
         template<class T>
-        tuple<boost::shared_ptr<T>, ros::Subscriber> createSubcriber(string topic, unsigned int buffer_size);
+        tuple<std::shared_ptr<T>, ros::Subscriber> createSubcriber(string topic, unsigned int buffer_size);
 
 //
         template<class T>
-        tuple<boost::shared_ptr<T>, boost::shared_ptr<tf::MessageFilter<T>>, boost::shared_ptr<message_filters::Subscriber<T>>>
+        tuple<std::shared_ptr<T>, std::shared_ptr<tf::MessageFilter<T>>, std::shared_ptr<message_filters::Subscriber<T>>>
         createSubcriberFilteredTf(string topic, unsigned int buffer_size, string frame);
 
         template<class T>
@@ -69,7 +69,7 @@ namespace util {
         void callback(const typename T::ConstPtr &msg);
 
         template<class T>
-        void bindcallback(const typename T::ConstPtr &msg, boost::shared_ptr<T> &data);
+        void bindcallback(const typename T::ConstPtr &msg, std::shared_ptr<T> &data);
 
         bool getOneMessage(string topic, double wait);
 
@@ -96,7 +96,7 @@ namespace util {
     }
 
     bool Listener::topicExists(string topic) {
-        if (util::keyExists<string, boost::shared_ptr<ros::CallbackQueue>>(callbackqueue_, topic)) {
+        if (util::keyExists<string, std::shared_ptr<ros::CallbackQueue>>(callbackqueue_, topic)) {
             return true;
         } else
             return false;
@@ -104,10 +104,10 @@ namespace util {
 
 
     template<class T>
-    tuple<boost::shared_ptr<T>, ros::Subscriber> Listener::createSubcriber(string topic, unsigned int buffer_size) {
+    tuple<std::shared_ptr<T>, ros::Subscriber> Listener::createSubcriber(string topic, unsigned int buffer_size) {
 //    callbackqueue_.a
-        boost::shared_ptr<T> data_ptr(boost::make_shared<T>());
-        tuple<boost::shared_ptr<T>, ros::Subscriber> res;
+        std::shared_ptr<T> data_ptr(std::make_shared<T>());
+        tuple<std::shared_ptr<T>, ros::Subscriber> res;
 
         if (topicExists(topic)) {
             ROS_ERROR("%s topic exists! return empty shared_ptr", topic.c_str());
@@ -115,13 +115,13 @@ namespace util {
 
         }
 
-//    boost::shared_ptr<T> data_ptr = boost::shared_ptr<T>(new T());
+//    std::shared_ptr<T> data_ptr = std::shared_ptr<T>(new T());
 
         // use make_shared whenever you can (i.e. when you don't need a custom deleter
 
         // create new nodehandler
         ros::NodeHandle n;
-        boost::shared_ptr<ros::CallbackQueue> q(boost::make_shared<ros::CallbackQueue>());
+        std::shared_ptr<ros::CallbackQueue> q(std::make_shared<ros::CallbackQueue>());
         n.setCallbackQueue(q.get());
 
 
@@ -162,7 +162,7 @@ namespace util {
     }
 
     template<class T>
-    void Listener::bindcallback(const typename T::ConstPtr &msg, boost::shared_ptr<T> &data) {
+    void Listener::bindcallback(const typename T::ConstPtr &msg, std::shared_ptr<T> &data) {
 
 
         data->cmd.data = "233" + msg->cmd.data;
@@ -195,12 +195,12 @@ namespace util {
 
 
     template<class T>
-    tuple<boost::shared_ptr<T>, boost::shared_ptr<tf::MessageFilter<T>>, boost::shared_ptr<message_filters::Subscriber<T>>>
+    tuple<std::shared_ptr<T>, std::shared_ptr<tf::MessageFilter<T>>, std::shared_ptr<message_filters::Subscriber<T>>>
     Listener::createSubcriberFilteredTf(string topic, unsigned int buffer_size, string target_frame) {
 
         //    callbackqueue_.a
-        boost::shared_ptr<T> data_ptr(boost::make_shared<T>());
-        tuple<boost::shared_ptr<T>, boost::shared_ptr<tf::MessageFilter<T>>, boost::shared_ptr<message_filters::Subscriber<T>>> res;
+        std::shared_ptr<T> data_ptr(std::make_shared<T>());
+        tuple<std::shared_ptr<T>, std::shared_ptr<tf::MessageFilter<T>>, std::shared_ptr<message_filters::Subscriber<T>>> res;
 
 
         if (topicExists(topic)) {
@@ -211,7 +211,7 @@ namespace util {
 
         // create new nodehandler
         ros::NodeHandle n;
-        boost::shared_ptr<ros::CallbackQueue> q(boost::make_shared<ros::CallbackQueue>());
+        std::shared_ptr<ros::CallbackQueue> q(std::make_shared<ros::CallbackQueue>());
         n.setCallbackQueue(q.get());
 
 
@@ -227,10 +227,10 @@ namespace util {
 
         // with shared_ptr
 #if 1
-        boost::shared_ptr<message_filters::Subscriber<T>> topic_sub(
-                boost::make_shared<message_filters::Subscriber<T>>(n, topic, 1));
-        boost::shared_ptr<tf::MessageFilter<T>> topic_filter(
-                boost::make_shared<tf::MessageFilter<T>>(*topic_sub.get(), *tf_, target_frame, 5));
+        std::shared_ptr<message_filters::Subscriber<T>> topic_sub(
+                std::make_shared<message_filters::Subscriber<T>>(n, topic, 1));
+        std::shared_ptr<tf::MessageFilter<T>> topic_filter(
+                std::make_shared<tf::MessageFilter<T>>(*topic_sub.get(), *tf_, target_frame, 5));
         topic_filter.get()->registerCallback(boost::bind(&Listener::bindcallback<T>, this, _1, data_ptr));
 #endif
 
