@@ -46,6 +46,9 @@ private:
 
     bool topicExists(string topic);
 
+    message_filters::Subscriber<node::mytopic> *topic_sub_;
+    tf::MessageFilter<node::mytopic>  *topic_filter_;
+
 public:
     Listener(ros::NodeHandle nh,ros::NodeHandle nh_private);
     Listener();
@@ -53,10 +56,10 @@ public:
     ~Listener();
 
     template <class T>
-    boost::shared_ptr<T> createSubcriber(string topic, unsigned int buffer_size);
+    tuple<boost::shared_ptr<T>, ros::Subscriber> createSubcriber(string topic, unsigned int buffer_size);
 //
     template <class T>
-    boost::shared_ptr<T> createSubcriberFilteredTf(string topic, unsigned int buffer_size, string frame);
+    tuple<boost::shared_ptr<T>, boost::shared_ptr<tf::MessageFilter<T>>, boost::shared_ptr<message_filters::Subscriber<T>> > createSubcriberFilteredTf(string topic, unsigned int buffer_size, string frame);
 
     template <class T>
     std::shared_ptr<T>  getChat(string topic);
@@ -102,13 +105,14 @@ bool Listener::topicExists(string topic) {
 }
 
 template <class T>
-boost::shared_ptr<T> Listener::createSubcriber(string topic, unsigned int buffer_size) {
+tuple<boost::shared_ptr<T>, ros::Subscriber> Listener::createSubcriber(string topic, unsigned int buffer_size) {
 //    callbackqueue_.a
     boost::shared_ptr<T> data_ptr(boost::make_shared<T>());
+    tuple<boost::shared_ptr<T>, ros::Subscriber> res;
 
     if (topicExists(topic)){
         ROS_ERROR("%s topic exists! return empty shared_ptr", topic.c_str());
-        return data_ptr;
+        return res;
 
     }
 
@@ -130,10 +134,12 @@ boost::shared_ptr<T> Listener::createSubcriber(string topic, unsigned int buffer
 
 //    ros::Subscriber chat_func_sub = nh_.subscribe(topic, 2, &Listener::callback<T>, this);
 
-    subscribers_.push_back(chat_func_sub);
+//    subscribers_.push_back(chat_func_sub);
     callbackqueue_[topic] = q;
+    res = std::make_tuple(data_ptr, chat_func_sub);
 
-    return data_ptr;
+
+    return res;
 
 }
 
@@ -190,16 +196,18 @@ bool Listener::getOneMessage(string topic, double wait) {
     return true;
 }
 
-
+#if 1
 template <class T>
-boost::shared_ptr<T> Listener::createSubcriberFilteredTf(string topic, unsigned int buffer_size, string target_frame) {
+tuple<boost::shared_ptr<T>, boost::shared_ptr<tf::MessageFilter<T>>, boost::shared_ptr<message_filters::Subscriber<T>> > Listener::createSubcriberFilteredTf(string topic, unsigned int buffer_size, string target_frame) {
 
     //    callbackqueue_.a
     boost::shared_ptr<T> data_ptr(boost::make_shared<T>());
+    tuple<boost::shared_ptr<T>, boost::shared_ptr<tf::MessageFilter<T>>, boost::shared_ptr<message_filters::Subscriber<T>> > res;
+
 
     if (topicExists(topic)){
         ROS_INFO("%s topic exists! return empty shared_ptr", topic.c_str());
-        return data_ptr;
+        return res;
 
     }
 
@@ -209,31 +217,62 @@ boost::shared_ptr<T> Listener::createSubcriberFilteredTf(string topic, unsigned 
     n.setCallbackQueue(q.get());
 
 
+#if 0
+    topic_sub_ = new message_filters::Subscriber<T>(n, topic, 1);
 
-//    auto *topic_sub = new message_filters::Subscriber<T>(n, topic, 1);
-    boost::shared_ptr<message_filters::Subscriber<T>> sub(boost::make_shared<message_filters::Subscriber<T>>(n, topic, 1));
+//    message_filters::Subscriber<T>t (n, topic, 1);
+//    message_filters::Subscriber<T> * topic_sub =  &(t);
+    topic_filter_ =  new tf::MessageFilter<T>(*topic_sub_,*tf_,target_frame,5);
+    topic_filter_->registerCallback(boost::bind(&Listener::bindcallback<T>,this, _1, data_ptr));
+#endif
+
+#if 1
+//    topic_sub_ = new message_filters::Subscriber<T>(n, topic, 1);
+
+//    message_filters::Subscriber<T>topic_sub__ (n, topic, 1);
+//    message_filters::Subscriber<T> * topic_sub =  &(topic_sub__);
+        boost::shared_ptr<message_filters::Subscriber<T>> topic_sub(boost::make_shared<message_filters::Subscriber<T>>(n, topic, 1));
+
+//
+////    message_filters::Subscriber<T>t (n, topic, 1);
+////    message_filters::Subscriber<T> * topic_sub =  &(t);
+//    tf::MessageFilter<T>topic_filter(*topic_sub_,*tf_,target_frame,5);
+//    topic_filter_ =  new tf::MessageFilter<T>(*topic_sub.get(),*tf_,target_frame,5);
+        boost::shared_ptr<tf::MessageFilter<T>> topic_filter(boost::make_shared<tf::MessageFilter<T>>(*topic_sub.get(),*tf_,target_frame,5));
 
 
-//    auto *topic_filter_ = new tf::MessageFilter<T>(*sub.get(),*tf_,target_frame,5);
-    boost::shared_ptr<tf::MessageFilter<T>> sub_filtered(boost::make_shared<tf::MessageFilter<T>>(*sub.get(),*tf_,target_frame,5));
+//    topic_filter.registerCallback(boost::bind(&Listener::bindcallback<T>,this, _1, data_ptr));
+    topic_filter.get()->registerCallback(boost::bind(&Listener::bindcallback<T>,this, _1, data_ptr));
 
-    sub_filtered.get()->registerCallback(boost::bind(&Listener::bindcallback,this, _1, data_ptr));
 
-//    subscribers_.push_back(topic_filter_);
+#endif
+
+#if 0
+//    boost::shared_ptr<message_filters::Subscriber<T>> topic_sub(boost::make_shared<message_filters::Subscriber<T>>(n, topic, 1));
+
+
+//    boost::shared_ptr<tf::MessageFilter<T>> topic_filter(boost::make_shared<tf::MessageFilter<T>>(*topic_sub_,*tf_,target_frame,5));
+
+//    topic_filter.get()->registerCallback(boost::bind(&Listener::bindcallback<T>,this, _1, data_ptr));
+#endif
     callbackqueue_[topic] = q;
-    return data_ptr;
+    res = std::make_tuple(data_ptr, topic_filter,topic_sub);
+
+
+
+
+
+    return res;
 
 
 }
 
-
+#endif
 
 
 int main(int argc, char **argv) {
 
-    tuple<int,int,int> t(1,2,3);
-    std::cout<<std::get<0>(t);
-    return 0;
+
 
 
     std::cout << "Hello, World!" << std::endl;
@@ -246,15 +285,24 @@ int main(int argc, char **argv) {
     // publish on o topic
     ros::Publisher chat_pub = nh.advertise<node::mytopic>("chat",1);
 
-    Listener l;
+    Listener l(nh,nh_private);
     std::shared_ptr<node::mytopic> p1 = l.getChat<node::mytopic>("chat");
     if (p1)
         ROS_INFO("%s",p1.get()->cmd.data.c_str());
     node::mytopic msg;
+    msg.header.frame_id = "node";
+
 //    boost::shared_ptr<node::mytopic> data = boost::shared_ptr<node::mytopic>(new node::mytopic());
 //    data->cmd.data = "sd";
     ros::spinOnce();
-    boost::shared_ptr<node::mytopic> data = l.createSubcriber<node::mytopic>("chat",2);
+#if 0
+    tuple<boost::shared_ptr<node::mytopic>, ros::Subscriber> res = l.createSubcriber<node::mytopic>("chat",2);
+    boost::shared_ptr<node::mytopic> data = std::get<0>(res);
+#endif
+    //filter
+    auto res2 = l.createSubcriberFilteredTf<node::mytopic>("chat",2,"map");
+    boost::shared_ptr<node::mytopic> data = std::get<0>(res2);
+
 
     ros::Rate rate(10);
     int i=0;
@@ -268,10 +316,17 @@ int main(int argc, char **argv) {
         msg.cmd.data =string(tmp) ;
         ros::spinOnce();
 
+//        l.getOneMessage("chat",0.1);
+//        if(data){
+//            ROS_INFO("local receive %s",data.get()->cmd.data.c_str());
+//        }
+#if 1
         l.getOneMessage("chat",0.1);
         if(data){
             ROS_INFO("local receive %s",data.get()->cmd.data.c_str());
         }
+#endif
+
 
 
         rate.sleep();
