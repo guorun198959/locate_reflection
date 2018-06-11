@@ -13,6 +13,7 @@
 
 //util
 #include <cpp_utils/container.h>
+#include <cpp_utils/tf.h>
 
 #include <vector>
 #include <string>
@@ -73,9 +74,15 @@ namespace util {
 
         bool getOneMessage(string topic, double wait);
 
+        bool getTransform(string fix_frame, string target_frame, tf::Transform &transform,
+                          ros::Time time = ros::Time::now());
 
+        template<class T>
+        bool createThred();
     };
 
+
+    // *****
     Listener::Listener(ros::NodeHandle nh, ros::NodeHandle nh_private) {
         updated_ = false;
         tf_ = new tf::TransformListener();
@@ -204,7 +211,7 @@ namespace util {
 
 
         if (topicExists(topic)) {
-            ROS_INFO("%s topic exists! return empty shared_ptr", topic.c_str());
+            ROS_ERROR("%s topic exists! return empty shared_ptr", topic.c_str());
             return res;
 
         }
@@ -217,10 +224,10 @@ namespace util {
 
         //nomal filter with private varibel
 #if 0
+        /*
+        define topic_sub_ topic_filter_ as member varibel
+        */
         topic_sub_ = new message_filters::Subscriber<T>(n, topic, 1);
-
-        //    message_filters::Subscriber<T>t (n, topic, 1);
-        //    message_filters::Subscriber<T> * topic_sub =  &(t);
         topic_filter_ =  new tf::MessageFilter<T>(*topic_sub_,*tf_,target_frame,5);
         topic_filter_->registerCallback(boost::bind(&Listener::bindcallback<T>,this, _1, data_ptr));
 #endif
@@ -239,6 +246,15 @@ namespace util {
         return res;
 
 
+    }
+
+    bool Listener::getTransform(string fix_frame, string target_frame, tf::Transform &transform, ros::Time time) {
+
+        bool successful = lookupTransform(tf_, fix_frame, target_frame, transform, ros::Time::now(), 0.5, true);
+        geometry_msgs::Pose p;
+        tf::poseTFToMsg(transform, p);
+        ROS_INFO_STREAM(p);
+        return successful;
     }
 
 

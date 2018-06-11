@@ -8,6 +8,7 @@
 #include <tf/tfMessage.h>
 #include <tf/transform_datatypes.h>
 #include <tf/tf.h>
+#include <tf/transform_broadcaster.h>
 #include <vector>
 #include <string>
 using std::vector;
@@ -31,7 +32,6 @@ namespace util{
 
     void getRPYFromQuaternion(double &roll, double &pitch, double &yaw, tf::Quaternion q){
         tf::Matrix3x3 m(q);
-        double roll, pitch, yaw;
         m.getRPY(roll, pitch, yaw);
     }
 
@@ -62,35 +62,29 @@ namespace util{
     }
 
 
-    tf::StampedTransform createStampedTransformFromTransform(tf::Transform transform, string fix_frame, string target_frame, ros::Time time  ){
 
-        tf::StampedTransform transform_stamped(transform, time,fix_frame, target_frame);
-        return transform_stamped;
 
-    }
 
-    tf::StampedTransform createStampedTransformFromTranslationYaw(geometry_msgs::Point translation, double yaw, ros::Time time ){
-        tf::Transform transform = createTransformFromTranslationYaw(createQuaternionFromYaw(yaw), createVector3FromPoint(translation));
-
-        return createStampedTransformFromTransform(transform,time);
-    }
 
 
 
 // lookup
 
-    bool lookupTransform(tf::TransformListener *tf_ , string fix_frame, string target_frame, ros::Time time,tf::Transform &transform, double sleep_duration = 0.1, bool block = false){
+    bool lookupTransform(tf::TransformListener *tf_, string fix_frame, string target_frame, tf::Transform &transform,
+                         ros::Time time, double sleep_duration = 0.1, bool block = false) {
         tf::StampedTransform transform_stamped;
 
 
         while (ros::ok()){
             try {
 
-                tf_->waitForTransform(fix_frame, target_frame, time, ros::Duration(sleep_duration));
+                tf_->waitForTransform(fix_frame, target_frame, time, ros::Duration(0.1));
                 tf_->lookupTransform(fix_frame, target_frame, time, transform_stamped);
+                break;
             }
             catch (tf::TransformException &ex) {
                 ROS_WARN("lookup transformation %s to %s failure: \n %s", fix_frame.c_str(), target_frame.c_str(), ex.what());
+                ros::Rate(10).sleep();
                 if (!block)
                     return false;
             }
@@ -106,7 +100,10 @@ namespace util{
     }
 
     // look up target_frame chane in the fix_frame
-    void lookupTranformChane(tf::TransformListener *tf_, ros::Time previous_time,ros::Time current_time, string fix_frame, string target_frame,tf::Transform &transform, double sleep_duration = 0.1, bool block = false ){
+    bool
+    lookupTranformChange(tf::TransformListener *tf_, ros::Time previous_time, ros::Time current_time, string fix_frame,
+                         string target_frame, tf::Transform &transform, double sleep_duration = 0.1,
+                         bool block = false) {
         // In case the client sent us a poses in the past, integrate the intervening odometric change.
         tf::StampedTransform transform_stamped;
         while (ros::ok()){
@@ -121,6 +118,7 @@ namespace util{
                 tf_->lookupTransform(target_frame, previous_time,
                                      target_frame, current_time,
                                      fix_frame, transform_stamped);
+                break;
             }
             catch(tf::TransformException e)
             {
@@ -147,19 +145,70 @@ namespace util{
     }
 
 //Transforms a geometry_msgs PointStamped message to frame target_frame, returns a new PointStamped message.
-    geometry_msgs::PointStamped transformPoint(tf::TransformListener *tf_ ,string target_frame ,geometry_msgs::PointStamped point){
+    geometry_msgs::PointStamped
+    transformPoint(tf::TransformListener *tf_, string fix_frame, geometry_msgs::PointStamped point) {
         geometry_msgs::PointStamped new_point;
-        tf_->transformPoint(target_frame,point,new_point);
+        tf_->transformPoint(fix_frame, point, new_point);
         return new_point;
 
     }
 
-    void sendTranform(){
 
+    tf::Stamped<tf::Pose> createIdentStampedPose(string frame, ros::Time time = ros::Time::now()) {
+        tf::Stamped<tf::Pose> ident(tf::Transform(tf::createIdentityQuaternion(),
+                                                  tf::Vector3(0, 0, 0)),
+                                    time, frame);
+        return ident;
     }
 
 
+    bool getFramePose(tf::TransformListener *tf_, string fix_frame, string target_frame, ros::Time time,
+                      tf::Stamped<tf::Pose> &target_pose, double sleep_duration = 0.1, bool block = false) {
 
+        tf::Stamped<tf::Pose> ident = createIdentStampedPose(target_frame, time);
+
+
+        while (ros::ok()) {
+            try {
+
+                tf_->waitForTransform(fix_frame, target_frame, time, ros::Duration(sleep_duration));
+                tf_->transformPose(fix_frame, ident, target_pose);
+                break;
+
+            }
+            catch (tf::TransformException &ex) {
+                ROS_WARN("lookup transformation %s to %s failure: \n %s", fix_frame.c_str(), target_frame.c_str(),
+                         ex.what());
+                if (!block)
+                    return false;
+            }
+
+        }
+
+
+        return true;
+    }
+
+
+    // publish
+    void sendTranform(tf::TransformBroadcaster *tfb_, tf::Transform transform, string fix_frame, string target_frame,
+                      double tolerance = 0.1) {
+
+        ros::Duration transform_tolerance;
+        transform_tolerance.fromSec(tolerance);
+
+        ros::Time tn = ros::Time::now();
+        ros::Time transform_expiration = (tn +
+                                          transform_tolerance);
+
+//            ROS_INFO("update odom by threads");
+        tf::StampedTransform transformstamped(transform,
+                                              transform_expiration,
+                                              fix_frame, target_frame);
+
+
+        tfb_->sendTransform(transformstamped);
+    }
 
 }
 #endif //CATKIN_STARTUP_TF_H

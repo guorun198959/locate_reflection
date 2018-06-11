@@ -28,21 +28,49 @@
 #include <string>
 #include <map>
 #include <tuple>
+#include <thread>
 using std::vector;
 using std::string;
 using std::map;
 using std::tuple;
 namespace node=catkin_startup;
 
+class Threading {
+public:
+    template<class T>
+    void createThread(T task) {
+        boost::thread thread(task);
+    }
 
+};
 
+template<class T>
+struct Task {
+    std::shared_ptr<T> data_;
 
+    Task(std::shared_ptr<T> data) {
+        data_ = data;
+    }
 
+    void operator()() {
+        while (1) {
+            std::cout << "=====================" << data_.get()->cmd.data << std::endl;
 
+            ros::Rate(5).sleep();
+        }
+    };
+
+};
+
+void f(int a, int b) {
+    std::cout << 6666 << a << b;
+}
 int main(int argc, char **argv) {
 
 
 
+
+//    return 0;
 
     std::cout << "Hello, World!" << std::endl;
     //init a node
@@ -64,16 +92,26 @@ int main(int argc, char **argv) {
 //    boost::shared_ptr<node::mytopic> data = boost::shared_ptr<node::mytopic>(new node::mytopic());
 //    data->cmd.data = "sd";
     ros::spinOnce();
-#if 0
-    tuple<boost::shared_ptr<node::mytopic>, ros::Subscriber> res = l.createSubcriber<node::mytopic>("chat",2);
-    boost::shared_ptr<node::mytopic> data = std::get<0>(res);
+    ros::Rate(1).sleep();
+
+#if 1
+    auto res = l.createSubcriber<node::mytopic>("chat", 2);
+    std::shared_ptr<node::mytopic> data = std::get<0>(res);
 #endif
     //filter
     auto res2 = l.createSubcriberFilteredTf<node::mytopic>("chat",2,"map");
-    std::shared_ptr<node::mytopic> data = std::get<0>(res2);
+    std::shared_ptr<node::mytopic> data2 = std::get<0>(res2);
+
+    tf::Transform transform;
+    l.getTransform("map", "node", transform);
+
+    Threading t;
+    Task<node::mytopic> task(data);
+    t.createThread<Task<node::mytopic>>(task);
 
 
     ros::Rate rate(10);
+//    return 0;
     int i=0;
     while (ros::ok()){
         i++;
