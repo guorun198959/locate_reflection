@@ -21,6 +21,7 @@ view_frames is a graphical debugging tool that creates a PDF graph of your curre
     
 1.3.rqt-tf-tree
 sudo apt-get install ros-kinetic-rqt-tf-tree
+rosrun rqt_tf_tree rqt_tf_tree
 
 2.output any msg type
 geometry_msgs/Point p;
@@ -31,3 +32,9 @@ ROS_INFO_STREAM(p)
     ros::NodeHandle n;
     boost::shared_ptr<ros::CallbackQueue> q(boost::make_shared<ros::CallbackQueue>());
     n.setCallbackQueue(q.get());
+    
+    
+4
+You can get the next message in a topic using ros::topic::waitForMessage().
+
+Note that internally this creates a subscriber on the topic you're interested in, waits for the next message to arrive, and then closes itself down and returns that message to you, so it's a fairly heavy operation, and requires that the topic it's listening to is either a latched topic, or is published frequently.
