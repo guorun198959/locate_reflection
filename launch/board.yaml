@@ -1,7 +1,9 @@
+visibel_angle: 1.23
+visibel_range_ratio: 0.8
 board_position:
-- x: 0.4
-  y: 0.2
-  yaw: 0.66
-- x: -0.1
-  y: 0.33
-  yaw: 1.57
+  - x: 4
+    y: 2
+    yaw: 3.14
+  - x: 3
+    y: 2
+    yaw: 3.14

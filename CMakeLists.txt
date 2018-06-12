@@ -93,7 +93,7 @@ install(DIRECTORY launch/
 
 #### test node
 
-add_executable(${PROJECT_NAME}_node src/main.cpp)
+add_executable(${PROJECT_NAME}_node src/main.cpp include/yaml/Yaml.cpp)
 target_link_libraries(${PROJECT_NAME}_node ${catkin_LIBRARIES} ${PROJECT_NAME})
 
 

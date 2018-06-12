@@ -1,0 +1,5 @@
+key: foo bar
+list:
+  - x: 1
+  - integer: 123
+    boolean: true

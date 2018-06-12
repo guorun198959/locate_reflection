@@ -76,9 +76,10 @@ namespace util{
 
         ROS_INFO("lookupTransform start tf");
 
-        ros::Time tn = ros::Time::now();
         while (ros::ok()){
             try {
+                ros::Time tn = ros::Time::now();
+
 
                 tf_->waitForTransform(fix_frame, target_frame, tn, ros::Duration(0.1));
                 tf_->lookupTransform(fix_frame, target_frame, tn, transform_stamped);

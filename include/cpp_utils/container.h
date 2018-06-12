@@ -63,11 +63,13 @@ namespace util{
         return vec;
     }
 
-    map<string ,XmlRpc::XmlRpcValue> createMapFromXmlRpcValue(XmlRpc::XmlRpcValue value){
-        map<string ,XmlRpc::XmlRpcValue> dict;
+    template<class T>
+    map<string, T> createMapFromXmlRpcValue(XmlRpc::XmlRpcValue value) {
+        map<string, T> dict;
         if (value.getType() == XmlRpc::XmlRpcValue::TypeStruct){
             for(XmlRpc::XmlRpcValue::iterator it=value.begin();it!=value.end();it++){
-                dict[it->first] = it->second;
+                std::cout << "sss==sss:" << it->second.toXml().c_str();
+//                dict[it->first] = atof(it->second.toXml().c_str());
             }
 
         }
