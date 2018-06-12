@@ -38,11 +38,21 @@ namespace util {
             string chat_;
             bool run_;
             bool exit_;
+            std::shared_ptr<T> data_;
+
 
             explicit signal(bool run, string chat = "test") {
                 run_ = run;
                 chat_ = chat;
                 exit_ = false;
+            }
+
+            void setData(std::shared_ptr<T> data) {
+                data_ = data;
+            }
+
+            T getData() {
+                return *data_;
             }
         };
 
@@ -88,10 +98,8 @@ namespace util {
 
         std::shared_ptr<signal> shared_signal_;
 
-        std::shared_ptr<T> shared_data_;
 
-        Task(std::shared_ptr<T> data, int durationMsec = 100) {
-            shared_data_ = data;
+        explicit Task(int durationMsec = 100) {
             durationMsec_ = durationMsec;
             shared_signal_ = std::make_shared<signal>(false);
         }
@@ -130,7 +138,12 @@ namespace util {
     template<class T>
     class MyTask : public Task<T> {
     public:
-        MyTask(std::shared_ptr<T> data, int durationMsec = 100) : Task<T>(data, durationMsec) {
+        /*The parent class has an explicit constructor, so compiler will not add an implicit 'empty' constructor to it.
+         * Additionally your constructor has a parameter, so compiler can not generate an implicit call to it.
+         * That's why you must do it explicitly.
+         * */
+        MyTask(int durationMsec, std::shared_ptr<T> data) : Task<T>(durationMsec) {
+            this->shared_signal_->setData(data);
 
         }
 
@@ -166,7 +179,7 @@ namespace util {
 
                 // do something
                 std::cout << "ChildClass=========" << this->shared_signal_.get()->chat_;
-                std::cout << this->shared_data_.get()->cmd.data;
+                std::cout << this->shared_signal_.get()->getData().cmd.data;
 
                 // sleep
                 this->sleep();
@@ -175,6 +188,37 @@ namespace util {
             }
         }
 
+    };
+
+    template<class T>
+    class ThreadPublisher : public util::Task<T> {
+    public:
+        ros::NodeHandle nh_;
+        ros::Publisher pub_;
+
+        explicit ThreadPublisher(int durationMsec, std::shared_ptr<T> data, ros::NodeHandle nh) : util::Task<T>(
+                durationMsec), nh_(nh) {
+
+            this->shared_signal_->setData(data);
+
+            pub_ = nh.advertise<T>("chat", 2);
+
+        }
+
+        void doSomething() {
+            this->wait();
+            T msg;
+            msg.header = this->shared_signal_.get()->getData().header;
+            for (int i = 0; i < 10000; i++) {
+                char tmp[200];
+                sprintf(tmp, "Threding **** %d", i);
+                msg.cmd.data = string(tmp);
+
+                pub_.publish(msg);
+                this->sleep();
+
+            }
+        }
     };
 
 }
