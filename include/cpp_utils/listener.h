@@ -70,9 +70,9 @@ namespace util {
         void callback(const typename T::ConstPtr &msg);
 
         template<class T>
-        void bindcallback(const typename T::ConstPtr &msg, std::shared_ptr<T> &data);
+        void bindcallback(const typename T::ConstPtr &msg, std::shared_ptr<T> data);
 
-        bool getOneMessage(string topic, double wait);
+        bool getOneMessage(string topic, double wait = false);
 
         bool getTransform(string fix_frame, string target_frame, tf::Transform &transform,
                           ros::Time time = ros::Time::now());
@@ -169,19 +169,20 @@ namespace util {
     }
 
     template<class T>
-    void Listener::bindcallback(const typename T::ConstPtr &msg, std::shared_ptr<T> &data) {
+    void Listener::bindcallback(const typename T::ConstPtr &msg, std::shared_ptr<T> data) {
 
 
-        data->cmd.data = "233" + msg->cmd.data;
-
-        ROS_INFO_STREAM(*msg);
-
+        // swap memory
+        T m = *msg;
+        std::swap(*data, m);
         updated_ = true;
+        ROS_ERROR("get data updated_ ");
 
     }
 
     bool Listener::getOneMessage(string topic, double wait) {
         updated_ = false;
+
         if (!topicExists(topic)) {
             ROS_ERROR("%s topic not exists! ", topic.c_str());
             return false;
@@ -189,14 +190,26 @@ namespace util {
         }
         if (wait > 0) {
             callbackqueue_[topic].get()->callAvailable(ros::WallDuration(wait));
-            if (!updated_)
+            if (!updated_) {
+                ROS_ERROR("%s topic No update ", topic.c_str());
+
                 return false;
 
+            }
+
         }
+
         if (wait < 0 && !updated_) {
-            callbackqueue_[topic].get()->callAvailable(ros::WallDuration(0.01));
-            ros::Rate(100);
+            while (ros::ok() && !updated_) {
+                callbackqueue_[topic].get()->callAvailable(ros::WallDuration(0.1));
+                ros::Rate(100);
+                ROS_ERROR("get data");
+            }
+
+
         }
+        ROS_ERROR("get data done ");
+
         return true;
     }
 
@@ -237,7 +250,7 @@ namespace util {
         std::shared_ptr<message_filters::Subscriber<T>> topic_sub(
                 std::make_shared<message_filters::Subscriber<T>>(n, topic, 1));
         std::shared_ptr<tf::MessageFilter<T>> topic_filter(
-                std::make_shared<tf::MessageFilter<T>>(*topic_sub.get(), *tf_, target_frame, 5));
+                std::make_shared<tf::MessageFilter<T>>(*topic_sub.get(), *tf_, target_frame, 10));
         topic_filter.get()->registerCallback(boost::bind(&Listener::bindcallback<T>, this, _1, data_ptr));
 #endif
 
@@ -249,8 +262,9 @@ namespace util {
     }
 
     bool Listener::getTransform(string fix_frame, string target_frame, tf::Transform &transform, ros::Time time) {
+        ROS_INFO("Listener start tf");
 
-        bool successful = lookupTransform(tf_, fix_frame, target_frame, transform, ros::Time::now(), 0.5, true);
+        bool successful = lookupTransform(tf_, fix_frame, target_frame, transform, time, 0.5, true);
         geometry_msgs::Pose p;
         tf::poseTFToMsg(transform, p);
         ROS_INFO_STREAM(p);

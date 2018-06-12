@@ -1,0 +1,7 @@
+board_position:
+- x: 0.4
+  y: 0.2
+  yaw: 0.66
+- x: -0.1
+  y: 0.33
+  yaw: 1.57

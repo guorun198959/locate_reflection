@@ -233,10 +233,13 @@ namespace util {
     std::shared_ptr<node::mytopic> data = std::get<0>(res);
     // data is shared_ptr
     util::Threading t;
-    util::Task<node::mytopic> task(data,100);
-    MyTask<node::mytopic> mytask(data);
+    util::Task<node::mytopic> task(100);
+    util::MyTask<node::mytopic> mytask(100,data);
+    util::ThreadPublisher<node::mytopic> pub_task(10,data,nh);
     t.createThread(task);
     t.createThread(mytask);
+    t.createThread(pub_task);
+    pub_task.start();
 
     task.start();
     task.chat("start work);

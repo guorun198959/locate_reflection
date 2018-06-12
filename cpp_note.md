@@ -56,9 +56,39 @@ https://stackoverflow.com/questions/6876751/differences-between-unique-ptr-and-s
     
     }
     
+
 4. map check key exists
-if ( m.find("f") == m.end() ) {
-  // not found
-} else {
-  // found
-}
+
+    if ( m.find("f") == m.end() ) {
+      // not found
+    } else {
+      // found
+    }
+    
+
+5.Function passed as template argument
+
+    template <typename F>
+    void doOperation(F f)
+    {
+      int temp=0;
+      f(temp);
+      std::cout << "Result is " << temp << std::endl;
+    }
+    
+    
+6
+You have two options to retrieve a reference to the object pointed to by a shared_ptr. 
+Suppose you have a shared_ptr variable named ptr. You can get the reference either by using *ptr or *ptr.get(). 
+These two should be equivalent, but the first would be preferred.
+
+7.share_ptr swap memory 
+
+        // swap memory
+        std::shared_ptr<T> data = std::make_shared<T>();
+        T* msg;
+        T m = *msg;
+        std::swap(*data,m);
+        
+8.
+Shortly, there is no reason to pass by value, unless the goal is to share ownership of an object (eg. between multiple threads).

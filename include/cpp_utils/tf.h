@@ -74,12 +74,14 @@ namespace util{
                          ros::Time time, double sleep_duration = 0.1, bool block = false) {
         tf::StampedTransform transform_stamped;
 
+        ROS_INFO("lookupTransform start tf");
 
+        ros::Time tn = ros::Time::now();
         while (ros::ok()){
             try {
 
-                tf_->waitForTransform(fix_frame, target_frame, time, ros::Duration(0.1));
-                tf_->lookupTransform(fix_frame, target_frame, time, transform_stamped);
+                tf_->waitForTransform(fix_frame, target_frame, tn, ros::Duration(0.1));
+                tf_->lookupTransform(fix_frame, target_frame, tn, transform_stamped);
                 break;
             }
             catch (tf::TransformException &ex) {
@@ -89,6 +91,7 @@ namespace util{
                     return false;
             }
         }
+        ROS_INFO("lookupTransform done tf");
 
         // normalize
         tf::Quaternion q(transform_stamped.getRotation());
