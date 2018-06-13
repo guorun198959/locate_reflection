@@ -1,5 +1,8 @@
 visibel_angle: 1.23
 visibel_range_ratio: 0.8
+intensity_thresh: 1000
+neighbor_thresh: 0.03
+length_thresh: 0.02
 board_position:
   - x: 4
     y: 2

@@ -25,7 +25,7 @@ namespace util{
 
         if (size > 0){
             T *ptr = &(vec[0]);
-            valarray<T> val = valarray<T>(ptr, size);
+            val = valarray<T>(ptr, size);
         }
 
         return val;
@@ -39,7 +39,7 @@ namespace util{
 
         if (size > 0){
             T *ptr = &(val[0]);
-            vector<T> vec = vector<T>(ptr,ptr + size);
+            vec = vector<T>(ptr, ptr + size);
         }
 
         return vec;

@@ -22,6 +22,7 @@
 //geometry transformation
 #include <geometry_msgs/Pose.h>
 #include <geometry_msgs/Point.h>
+#include <geometry_msgs/PoseArray.h>
 #include <tf/tf.h>
 
 
@@ -46,6 +47,7 @@ namespace node=catkin_startup;
 // given latest baselink
 // and a set of points[x,y,yaw]
 
+ros::Publisher boardPub, pointPub;
 
 double normalDiff(double angle1, double angle2) {
 
@@ -65,9 +67,11 @@ class KdTreeCreator {
 private:
     ros::NodeHandle nh_;
     ros::NodeHandle nh_private_;
+    std::shared_ptr<ros::Subscriber> sub_;
     std::shared_ptr<sensor_msgs::LaserScan> laser_data_;
     geometry_msgs::Pose laserPose_;
     XmlRpc::XmlRpcValue value_;
+    valarray<float> bear_;
 
     Yaml::Node param_;
 
@@ -76,10 +80,14 @@ private:
 
     util::Listener l;
 
+
     void getBoardPosition();
 
     vector<Position> xmlToPoints();
 public:
+    void detectBoard();
+
+    bool updateSensor();
     KdTreeCreator(ros::NodeHandle nh, ros::NodeHandle nh_provate);
 
 
@@ -90,16 +98,42 @@ public:
 KdTreeCreator::KdTreeCreator(ros::NodeHandle nh, ros::NodeHandle nh_private) : nh_(nh), nh_private_(nh_private),
                                                                                l(nh, nh_private) {
 //    util::Listener l(nh, nh_private);
+#if 0
     auto res = l.createSubcriberFilteredTf<sensor_msgs::LaserScan>("scan", 2, "map");
+
+#endif
+#if 1
+
+    auto res = l.createSubcriber<sensor_msgs::LaserScan>("scan", 10);
+#endif
+
+
     laser_data_ = std::get<0>(res);
+//    sub_ = std::get<1>(res);
     l.getOneMessage("scan", -1);
-    cout << laser_data_.get()->header;
-    getLaserPose();
+    cout << "233" << laser_data_.get()->header;
+//    updateSensor();
+
+
+
+//    getLaserPose();
     getBoardPosition();
 
 
 }
 
+bool KdTreeCreator::updateSensor() {
+    bool getmsg = l.getOneMessage("scan", -1);
+    cout << "255" << laser_data_.get()->header;
+    size_t size = laser_data_.get()->ranges.size();
+    if (bear_.size() != size) {
+        bear_ = valarray<float>(0.0, size);
+        for (int i = 0; i < size; i++) {
+            bear_[i] = laser_data_.get()->angle_min + i * laser_data_.get()->angle_increment;
+        }
+    }
+    return getmsg;
+}
 void KdTreeCreator::getLaserPose() {
 
     ROS_INFO("getLaserPose start tf");
@@ -115,13 +149,13 @@ void KdTreeCreator::getBoardPosition() {
     string filename = "/home/waxz/refloc_ws/src/catkin_startup/launch/board.yaml";
 
     param_ = util::readFile(filename);
-    xmlToPoints();
+//    xmlToPoints();
 
 }
 
 vector<Position> KdTreeCreator::xmlToPoints() {
-    double visibel_angle = param_["visibel_angle"].As<double>();
-    double visibel_range_ratio = param_["visibel_range_ratio"].As<double>();
+    auto visibel_angle = param_["visibel_angle"].As<double>();
+    auto visibel_range_ratio = param_["visibel_range_ratio"].As<double>();
 
     vector<Position> positions;
 
@@ -133,6 +167,9 @@ vector<Position> KdTreeCreator::xmlToPoints() {
     util::createMapFromXmlRpcValue<double>(value_[0]);
 //    return positions;
 
+
+
+
     for (int it = 0; it < param_["board_position"].Size(); it++) {
 
         p.x = param_["board_position"][it]["x"].As<double>();
@@ -141,7 +178,6 @@ vector<Position> KdTreeCreator::xmlToPoints() {
 
         p.yaw = param_["board_position"][it]["yaw"].As<double>();
 
-        cout << "ffff" << value_[it]["x"];
 
 
         // check visibility
@@ -168,64 +204,150 @@ vector<Position> KdTreeCreator::xmlToPoints() {
 
         if (condition1 && condition2) {
             positions.push_back(p);
+
+
         }
 
     }
     ROS_INFO("get boarder:%d", int(positions.size()));
 
+
     return positions;
 
 }
 
-void createSearchTree(XmlRpc::XmlRpcValue value, geometry_msgs::Pose laserPose) {
 
-//    vector<Position> positions = xmlToPoints(value);
+void KdTreeCreator::detectBoard() {
+    // upddate sensor
+    ROS_INFO("start scan");
+    if (!updateSensor())
+        return;;
+
+    // vector to valarray
+    valarray<float> ranges = util::createValarrayFromVector<float>(laser_data_.get()->ranges);
+    valarray<float> intensities = util::createValarrayFromVector<float>(laser_data_.get()->intensities);
+    if (intensities.size() == 0) {
+        ROS_ERROR("scan has no intensities ");
+        exit(0);
+    }
+
+    valarray<float> xs = ranges * cos(bear_);
+    valarray<float> ys = ranges * sin(bear_);
 
 
-    // fist compute or point's distance to robot fll_set --> set1
-    // compute direction, set1 --> set2
+    auto intensity_thresh = param_["intensity_thresh"].As<float>();
+    auto neighbor_thresh = param_["neighbor_thresh"].As<float>();
+    auto length_thresh = param_["length_thresh"].As<float>();
+
+
+//    valarray<float> lightPoitns = intensities[intensities>intensity_thresh];
+    valarray<float> lightXs = xs[intensities > intensity_thresh];
+    valarray<float> lightYs = ys[intensities > intensity_thresh];
+
+    size_t size = lightXs.size();
+    if (size == 0) {
+
+        ROS_ERROR("no light point");
+        return;
+
+    }
+
+    valarray<float> lightXsL = lightXs[std::slice(0, size - 1, 1)];
+    valarray<float> lightXsR = lightXs[std::slice(1, size - 1, 1)];
+
+    valarray<float> lightYsL = lightYs[std::slice(0, size - 1, 1)];
+    valarray<float> lightYsR = lightYs[std::slice(1, size - 1, 1)];
+
+    valarray<float> distance = sqrt(pow(lightXsR - lightXsL, 2) + pow(lightYsR - lightYsL, 2));
+
+
+//    for (int i =0;i< distance.size();i++)
+//        cout<<distance[i]<<",";
+
+
+    Position p;
+    vector<Position> ps;
+    size_t pointNum = 0;
+    double pointLength = 0;
+
+    //publish pose
+    geometry_msgs::PoseArray msg, lightpoints;
+    msg.header.stamp = ros::Time::now();
+    msg.header.frame_id = "laser";
+    lightpoints.header.stamp = ros::Time::now();
+    lightpoints.header.frame_id = "laser";
+    geometry_msgs::Pose pose, lightpose;
+
+
+    for (int i = 0; i < distance.size(); i++) {
+
+        if (distance[i] < neighbor_thresh && i < distance.size() - 2) {
+            pointNum++;
+        }
+        if (distance[i] > neighbor_thresh || (i == distance.size() - 1 && distance[i] < neighbor_thresh)) {
+            double length = sqrt(
+                    pow(lightXsL[i] - lightXsL[i - pointNum], 2) + pow(lightYsL[i] - lightYsL[i - pointNum], 2));
+            //compute length
+
+            if (length > length_thresh) {
+
+                // get index
+                vector<size_t> idx_vec;
+                for (size_t it = i - pointNum; it < i + 1; it++) {
+                    idx_vec.push_back(it);
+                    lightpose.position.x = lightXsL[it];
+                    lightpose.position.y = lightYsL[it];
+                    lightpoints.poses.push_back(lightpose);
+
+
+                }
+                valarray<size_t> idx_val = util::createValarrayFromVector<size_t>(idx_vec);
+
+                valarray<float> cluster_x = lightXsL[idx_val];
+
+                double center_x = cluster_x.sum() / cluster_x.size();
+
+                valarray<float> cluster_y = lightYsL[idx_val];
+
+                double center_y = cluster_y.sum() / cluster_y.size();
+                p.x = center_x;
+                p.y = center_y;
+
+                ps.push_back(p);
+                cout << "x" << p.x << "y" << p.y << std::endl;
+
+
+                pose.position.x = p.x;
+                pose.position.y = p.y;
+                msg.poses.push_back(pose);
+            }
+
+            pointNum = 0;
+
+        };
+
+    }
+
+    cout << "get board num " << ps.size();
+    ROS_INFO("finish scan");
+    boardPub.publish(msg);
+    pointPub.publish(lightpoints);
+
+
+
+
+
+
+
+
+
 
 }
 
-
-void Read(string fn) {
-    using namespace Yaml;
-    Yaml::Node root;
-    Yaml::Parse(root, "/home/waxz/refloc_ws/src/catkin_startup/launch/board.yaml");
-
-// Print all scalars.
-    std::cout << root["visibel_angle"].As<double>() << std::endl;
-    std::cout << root["visibel_range_ratio"].As<double>() << std::endl;
-//
-    std::cout << "size" << root["board_position"].Size();
-    std::cout << root["board_position"][0]["x"].As<double>() << std::endl;
-    std::cout << root["board_position"][1]["y"].As<double>() << std::endl;
-
-    Serialize(root, "/home/waxz/refloc_ws/src/catkin_startup/launch//out.txt");
-
-//// Iterate second sequence item.
-//    Node & item = root[1];
-//    for(auto it = item.Begin(); it != item.End(); it++)
-//    {
-//        std::cout << (*it).first << ": " << (*it).second.As<string>() << std::endl;
-//    }
-
-}
 
 
 
 int main(int argc, char **argv) {
-
-    string filename = "/home/waxz/refloc_ws/src/catkin_startup/launch/board.yaml";
-
-    Yaml::Node param = util::readFile(filename);
-    cout << param["board_position"][0]["yaw"].As<double>();
-    std::cout << param["board_position"][0]["x"].As<double>() << std::endl;
-
-
-
-
-//    return 0;
 
 
 
@@ -235,6 +357,10 @@ int main(int argc, char **argv) {
     ros::NodeHandle nh;
     ros::NodeHandle nh_private("~");
 
+
+    boardPub = nh.advertise<geometry_msgs::PoseArray>("board", 2);
+    pointPub = nh.advertise<geometry_msgs::PoseArray>("lightpoint", 2);
+
     // test xmlrpcvalue
 #if 0
     XmlRpc::XmlRpcValue value;
@@ -243,17 +369,36 @@ int main(int argc, char **argv) {
     ROS_INFO_STREAM(value[0]["x"]);
     cout << V[0]["x"];
 #endif
-    ros::Duration(0.5).sleep();
-    KdTreeCreator kd(nh, nh_private);
+//    ros::Duration(0.5).sleep();
 
+#if 1
+    KdTreeCreator kd(nh, nh_private);
+//    kd.updateSensor();
+#endif
+
+    ros::Rate r(5);
+    while (ros::ok()) {
+        kd.detectBoard();
+
+        r.sleep();
+    }
 
     return 0;
+
 
     //**** topic
     // publish on o topic
     ros::Publisher chat_pub = nh.advertise<node::mytopic>("chat",1);
 
     util::Listener l(nh, nh_private);
+
+    auto res2 = l.createSubcriber<sensor_msgs::LaserScan>("scan", 2);
+    std::shared_ptr<sensor_msgs::LaserScan> data2 = std::get<0>(res2);
+    l.getOneMessage("scan", -1);
+    cout << data2.get()->header;
+
+    return 0;
+
     std::shared_ptr<node::mytopic> p1 = l.getChat<node::mytopic>("chat");
     if (p1)
         ROS_INFO("%s",p1.get()->cmd.data.c_str());
@@ -270,11 +415,12 @@ int main(int argc, char **argv) {
     std::shared_ptr<node::mytopic> data = std::get<0>(res);
 #endif
     //filter
+#if 0
     auto res = l.createSubcriberFilteredTf<node::mytopic>("chat", 2, "map");
     std::shared_ptr<node::mytopic> data = std::get<0>(res);
     auto res2 = l.createSubcriberFilteredTf<sensor_msgs::LaserScan>("scan", 2, "map");
     std::shared_ptr<sensor_msgs::LaserScan> data2 = std::get<0>(res2);
-
+#endif
 #if 1
 
     tf::Transform transform;
@@ -329,7 +475,7 @@ int main(int argc, char **argv) {
 //        if(data){
 //            ROS_INFO("local receive %s",data.get()->cmd.data.c_str());
 //        }
-#if 1
+#if 0
         l.getOneMessage("scan", 0.5);
         if(data){
             ROS_INFO("local receive %s",data.get()->cmd.data.c_str());

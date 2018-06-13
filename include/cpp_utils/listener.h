@@ -36,6 +36,8 @@ namespace util {
         //call callback_queue given specific topic
         map<string, std::shared_ptr<ros::CallbackQueue>> callbackqueue_;
 
+        vector<ros::Subscriber> subscriberVec_;
+
         tf::TransformListener *tf_;
 
         // check if get update message
@@ -71,6 +73,9 @@ namespace util {
 
         template<class T>
         void bindcallback(const typename T::ConstPtr &msg, std::shared_ptr<T> data);
+
+        virtual void doSomething() {}
+
 
         bool getOneMessage(string topic, double wait = false);
 
@@ -141,6 +146,7 @@ namespace util {
 
         callbackqueue_[topic] = q;
         res = std::make_tuple(data_ptr, chat_func_sub);
+        subscriberVec_.push_back(chat_func_sub);
 
 
         return res;
