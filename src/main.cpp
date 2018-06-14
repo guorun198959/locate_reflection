@@ -8,6 +8,7 @@
 #include <cpp_utils/listener.h>
 #include <cpp_utils/threading.h>
 #include <cpp_utils/parse.h>
+#include <kdtree/search.h>
 
 #include <ros/ros.h>
 #include <ros/callback_queue.h> //  ros::CallbackQueue queue
@@ -30,11 +31,13 @@
 #include <XmlRpc.h>
 
 #include <yaml/Yaml.hpp>
+#include <kdtree/kdtree.h>
 #include <vector>
 #include <string>
 #include <map>
 #include <tuple>
 #include <thread>
+#include <array>
 using std::vector;
 using std::string;
 using std::map;
@@ -47,8 +50,14 @@ namespace node=catkin_startup;
 // given latest baselink
 // and a set of points[x,y,yaw]
 
-ros::Publisher boardPub, pointPub;
 
+// for debug
+#define debug_pub true
+
+#if debug_pub
+ros::Publisher boardPub, pointPub, markerPub;
+
+#endif
 double normalDiff(double angle1, double angle2) {
 
     double diff = angle1 - angle2;
@@ -62,7 +71,7 @@ struct Position {
 };
 
 
-class KdTreeCreator {
+class BoardFinder {
 
 private:
     ros::NodeHandle nh_;
@@ -81,22 +90,27 @@ private:
     util::Listener l;
 
 
-    void getBoardPosition();
+    vector<Position> getBoardPosition();
 
     vector<Position> xmlToPoints();
+
 public:
-    void detectBoard();
+    vector<Position> detectBoard();
 
     bool updateSensor();
-    KdTreeCreator(ros::NodeHandle nh, ros::NodeHandle nh_provate);
+
+    BoardFinder(ros::NodeHandle nh, ros::NodeHandle nh_provate);
+
+
+    void find();
 
 
 
 };
 
 
-KdTreeCreator::KdTreeCreator(ros::NodeHandle nh, ros::NodeHandle nh_private) : nh_(nh), nh_private_(nh_private),
-                                                                               l(nh, nh_private) {
+BoardFinder::BoardFinder(ros::NodeHandle nh, ros::NodeHandle nh_private) : nh_(nh), nh_private_(nh_private),
+                                                                           l(nh, nh_private) {
 //    util::Listener l(nh, nh_private);
 #if 0
     auto res = l.createSubcriberFilteredTf<sensor_msgs::LaserScan>("scan", 2, "map");
@@ -109,9 +123,11 @@ KdTreeCreator::KdTreeCreator(ros::NodeHandle nh, ros::NodeHandle nh_private) : n
 
 
     laser_data_ = std::get<0>(res);
-//    sub_ = std::get<1>(res);
-    l.getOneMessage("scan", -1);
-    cout << "233" << laser_data_.get()->header;
+
+    string filename = "/home/waxz/refloc_ws/src/catkin_startup/launch/board.yaml";
+
+    param_ = util::readFile(filename);
+
 //    updateSensor();
 
 
@@ -122,7 +138,7 @@ KdTreeCreator::KdTreeCreator(ros::NodeHandle nh, ros::NodeHandle nh_private) : n
 
 }
 
-bool KdTreeCreator::updateSensor() {
+bool BoardFinder::updateSensor() {
     bool getmsg = l.getOneMessage("scan", -1);
     cout << "255" << laser_data_.get()->header;
     size_t size = laser_data_.get()->ranges.size();
@@ -134,26 +150,33 @@ bool KdTreeCreator::updateSensor() {
     }
     return getmsg;
 }
-void KdTreeCreator::getLaserPose() {
+
+void BoardFinder::getLaserPose() {
 
     ROS_INFO("getLaserPose start tf");
 //    l.getOneMessage("scan",-1);
     tf::Transform transform;
-    l.getTransform("map", "laser", transform);
+
+    transform.setIdentity();
+
+//    l.getTransform("map", "laser", transform);
     tf::poseTFToMsg(transform, laserPose_);
     ROS_INFO_STREAM(laserPose_);
 }
 
-void KdTreeCreator::getBoardPosition() {
+vector<Position> BoardFinder::getBoardPosition() {
 
-    string filename = "/home/waxz/refloc_ws/src/catkin_startup/launch/board.yaml";
 
-    param_ = util::readFile(filename);
+    updateSensor();
+    getLaserPose();
+    vector<Position> points = xmlToPoints();
+    return points;
+
 //    xmlToPoints();
 
 }
 
-vector<Position> KdTreeCreator::xmlToPoints() {
+vector<Position> BoardFinder::xmlToPoints() {
     auto visibel_angle = param_["visibel_angle"].As<double>();
     auto visibel_range_ratio = param_["visibel_range_ratio"].As<double>();
 
@@ -167,8 +190,14 @@ vector<Position> KdTreeCreator::xmlToPoints() {
     util::createMapFromXmlRpcValue<double>(value_[0]);
 //    return positions;
 
+#if debug_pub
 
+    geometry_msgs::PoseArray msg;
+    msg.header.stamp = ros::Time::now();
+    msg.header.frame_id = "map";
+#endif
 
+    ROS_ERROR("get yaml board Num:%d", int(param_["board_position"].Size()));
 
     for (int it = 0; it < param_["board_position"].Size(); it++) {
 
@@ -200,16 +229,33 @@ vector<Position> KdTreeCreator::xmlToPoints() {
         bool condition1 = direction1 < visibel_angle;
 
         ROS_INFO("data inrange,%.3f,%.3f,%.3f,%.3f", robottoboardangle, boardtorobotangle, direction1, direction2);
+        ROS_INFO("limit: visibel_angle=%.3f,angle_min=%.3f,angle_max=%.3f", visibel_angle, laser_data_.get()->angle_min,
+                 laser_data_.get()->angle_max);
 
 
         if (condition1 && condition2) {
             positions.push_back(p);
 
+#if debug_pub
+
+            geometry_msgs::Point point;
+            point.x = p.x;
+            point.y = p.y;
+
+            geometry_msgs::Pose pose;
+            tf::poseTFToMsg(util::tf_util::createTransformFromTranslationYaw(point, p.yaw), pose);
+            msg.poses.push_back(pose);
+#endif
 
         }
 
     }
     ROS_INFO("get boarder:%d", int(positions.size()));
+#if debug_pub
+
+
+    markerPub.publish(msg);
+#endif
 
 
     return positions;
@@ -217,17 +263,20 @@ vector<Position> KdTreeCreator::xmlToPoints() {
 }
 
 
-void KdTreeCreator::detectBoard() {
+vector<Position> BoardFinder::detectBoard() {
     // upddate sensor
+    vector<Position> ps;
+
     ROS_INFO("start scan");
     if (!updateSensor())
-        return;;
+        return ps;
 
     // vector to valarray
     valarray<float> ranges = util::createValarrayFromVector<float>(laser_data_.get()->ranges);
     valarray<float> intensities = util::createValarrayFromVector<float>(laser_data_.get()->intensities);
     if (intensities.size() == 0) {
         ROS_ERROR("scan has no intensities ");
+        return ps;
         exit(0);
     }
 
@@ -248,7 +297,7 @@ void KdTreeCreator::detectBoard() {
     if (size == 0) {
 
         ROS_ERROR("no light point");
-        return;
+        return ps;
 
     }
 
@@ -266,7 +315,6 @@ void KdTreeCreator::detectBoard() {
 
 
     Position p;
-    vector<Position> ps;
     size_t pointNum = 0;
     double pointLength = 0;
 
@@ -281,12 +329,16 @@ void KdTreeCreator::detectBoard() {
 
     for (int i = 0; i < distance.size(); i++) {
 
-        if (distance[i] < neighbor_thresh && i < distance.size() - 2) {
+        if (distance[i] < neighbor_thresh) {
             pointNum++;
         }
         if (distance[i] > neighbor_thresh || (i == distance.size() - 1 && distance[i] < neighbor_thresh)) {
+
+            if (i == distance.size() - 1) {
+                i++;
+            }
             double length = sqrt(
-                    pow(lightXsL[i] - lightXsL[i - pointNum], 2) + pow(lightYsL[i] - lightYsL[i - pointNum], 2));
+                    pow(lightXs[i] - lightXs[i - pointNum], 2) + pow(lightYs[i] - lightYs[i - pointNum], 2));
             //compute length
 
             if (length > length_thresh) {
@@ -295,19 +347,19 @@ void KdTreeCreator::detectBoard() {
                 vector<size_t> idx_vec;
                 for (size_t it = i - pointNum; it < i + 1; it++) {
                     idx_vec.push_back(it);
-                    lightpose.position.x = lightXsL[it];
-                    lightpose.position.y = lightYsL[it];
+                    lightpose.position.x = lightXs[it];
+                    lightpose.position.y = lightYs[it];
                     lightpoints.poses.push_back(lightpose);
 
 
                 }
                 valarray<size_t> idx_val = util::createValarrayFromVector<size_t>(idx_vec);
 
-                valarray<float> cluster_x = lightXsL[idx_val];
+                valarray<float> cluster_x = lightXs[idx_val];
 
                 double center_x = cluster_x.sum() / cluster_x.size();
 
-                valarray<float> cluster_y = lightYsL[idx_val];
+                valarray<float> cluster_y = lightYs[idx_val];
 
                 double center_y = cluster_y.sum() / cluster_y.size();
                 p.x = center_x;
@@ -330,24 +382,122 @@ void KdTreeCreator::detectBoard() {
 
     cout << "get board num " << ps.size();
     ROS_INFO("finish scan");
+
+#if debug_pub
     boardPub.publish(msg);
     pointPub.publish(lightpoints);
-
-
-
-
-
-
-
-
-
-
+#endif
+    return ps;
 }
 
 
+void BoardFinder::find() {
+    // get real board position
+    vector<Position> realPoints = getBoardPosition();
+    // detect board position
+    vector<Position> detectPoints = detectBoard();
+
+    // if successful
+    if (!realPoints.empty() && detectPoints.empty()) {
+
+        // transform detectPoints to map frame
+        vector<geometry_msgs::PointStamped> points;
+        geometry_msgs::PointStamped point;
+        point.header.frame_id = "laser";
+        point.header.stamp = ros::Time::now();
+        for (int i = 0; i < detectPoints.size(); i++) {
+
+            point.point.x = detectPoints[i].x;
+            point.point.y = detectPoints[i].y;
+
+            points.push_back(point);
+
+        }
+        l.tranformPoints(points, "map");
+
+
+#if 0
+        // find match and sort vector
+        findNN(realPoints, detectPoints);
+        // compute
+        computeTagetVector();
+        getBasePose();
+        updateOdom();
+#endif
+
+    }
+}
+
+void ll() {
+    //get laser pose
+    // get near board position
+    // detect board
+    // compute target pose
+    /* 1. transorm detectBoard to map frame
+     * 2. sort and match
+     * 3. compute target pose
+     * */
+    // compute target pose and relative position
+    // update
+}
+
+
+// user-defined point type
+// inherits std::array in order to use operator[]
+class Point2d : public std::array<double, 2> {
+public:
+
+    // dimension of space (or "k" of k-d tree)
+    // KDTree class accesses this member
+    static const int DIM = 2;
+
+    // the constructors
+    Point2d() {}
+
+    Point2d(double x, double y) {
+        (*this)[0] = x;
+        (*this)[1] = y;
+    }
+
+
+};
 
 
 int main(int argc, char **argv) {
+
+    // generate points
+    // generate space
+    const int width = 500;
+    const int height = 500;
+    const int npoints = 100;
+    std::vector<Point2d> points(npoints);
+    for (int i = 0; i < npoints; i++) {
+        const int x = rand() % width;
+        const int y = rand() % height;
+        points[i] = Point2d(x, y);
+    }
+    // build k-d tree
+    kdt::KDTree<Point2d> kdtree(points);
+    // generate query (center of the space)
+    const Point2d query(0.5 * width, 0.5 * height);
+
+    // nearest neigbor search
+    const int idx = kdtree.nnSearch(query);
+
+    // k-nearest neigbors search
+    const int k = 10;
+
+    const std::vector<int> knnIndices = kdtree.knnSearch(query, k);
+    // radius search
+    const double radius = 50;
+    const std::vector<int> radIndices = kdtree.radiusSearch(query, radius);
+
+    vector<int> res;
+    util::KdTree<Point2d> tree(points);
+    res = tree.queryIndex(query, util::SearchMode::radius, radius);
+
+
+    return 0;
 
 
 
@@ -357,22 +507,41 @@ int main(int argc, char **argv) {
     ros::NodeHandle nh;
     ros::NodeHandle nh_private("~");
 
-
-    boardPub = nh.advertise<geometry_msgs::PoseArray>("board", 2);
+#if debug_pub
+    boardPub = nh.advertise<geometry_msgs::PoseArray>("detectboard", 2);
     pointPub = nh.advertise<geometry_msgs::PoseArray>("lightpoint", 2);
-
-    // test xmlrpcvalue
-#if 0
-    XmlRpc::XmlRpcValue value;
-    nh.getParam("board_position", value);
-    auto V = util::createVectorFromXmlRpcValue(value);
-    ROS_INFO_STREAM(value[0]["x"]);
-    cout << V[0]["x"];
+    markerPub = nh.advertise<geometry_msgs::PoseArray>("board", 2);
 #endif
+
+#if 0
+    util::Listener test(nh, nh_private);
+
+
+    ros::Duration(1.5).sleep();
+
+    geometry_msgs::PointStamped p,q;
+    p.header.frame_id = "laser";
+    p.header.stamp=ros::Time::now();
+    p.point.x = 1;
+    vector<geometry_msgs::PointStamped> points;
+    points.push_back(p);
+    test.tranformPoints(points,"map");
+    cout<<points[0];
+
+
+    geometry_msgs::PoseStamped poses;
+    poses.header =p.header;
+    poses.pose.position = p.point;
+    poses.pose.orientation.w =1;
+    test.tranformPose(poses,"map");
+    cout<<poses;
+    return 0;
+#endif
+
 //    ros::Duration(0.5).sleep();
 
 #if 1
-    KdTreeCreator kd(nh, nh_private);
+    BoardFinder kd(nh, nh_private);
 //    kd.updateSensor();
 #endif
 

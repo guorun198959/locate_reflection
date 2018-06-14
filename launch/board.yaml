@@ -4,9 +4,9 @@ intensity_thresh: 1000
 neighbor_thresh: 0.03
 length_thresh: 0.02
 board_position:
-  - x: 4
-    y: 2
-    yaw: 3.14
-  - x: 3
-    y: 2
-    yaw: 3.14
+  - x: 1
+    y: 0.078
+    yaw: 3.1415
+  - x: 1
+    y: -0.078
+    yaw: 3.1415

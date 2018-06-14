@@ -84,6 +84,10 @@ namespace util {
 
         template<class T>
         bool createThred();
+
+        bool tranformPoints(vector<geometry_msgs::PointStamped> &Points, string fix_frame);
+
+        bool tranformPose(geometry_msgs::PoseStamped &pose, string fix_frame);
     };
 
 
@@ -270,13 +274,25 @@ namespace util {
     bool Listener::getTransform(string fix_frame, string target_frame, tf::Transform &transform, ros::Time time) {
         ROS_INFO("Listener start tf");
 
-        bool successful = lookupTransform(tf_, fix_frame, target_frame, transform, time, 0.5, true);
+        bool successful = tf_util::lookupTransform(tf_, fix_frame, target_frame, transform, time, 0.5, true);
+
+
         geometry_msgs::Pose p;
         tf::poseTFToMsg(transform, p);
         ROS_INFO_STREAM(p);
         return successful;
     }
 
+
+    //tranformPoint
+    bool Listener::tranformPoints(vector<geometry_msgs::PointStamped> &points, string fix_frame) {
+        return tf_util::transformPoints(tf_, fix_frame, points, 0.1, true);
+    }
+
+    //transformpose
+    bool Listener::tranformPose(geometry_msgs::PoseStamped &pose, string fix_frame) {
+        return tf_util::transformPose(tf_, fix_frame, pose, 0.1, true);
+    }
 
 }
 #endif //CATKIN_STARTUP_LISTENER_H
