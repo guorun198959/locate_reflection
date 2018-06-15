@@ -9,7 +9,7 @@
 #include <string>
 
 using std::string;
-namespace util {
+namespace Yaml {
 
     Yaml::Node readFile(string filename) {
         using namespace Yaml;

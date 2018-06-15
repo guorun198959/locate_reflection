@@ -8,7 +8,7 @@
 #include <cpp_utils/listener.h>
 #include <cpp_utils/threading.h>
 #include <cpp_utils/parse.h>
-#include <kdtree/search.h>
+#include <cpp_utils/search.h>
 
 #include <ros/ros.h>
 #include <ros/callback_queue.h> //  ros::CallbackQueue queue
@@ -81,28 +81,40 @@ private:
     geometry_msgs::Pose laserPose_;
     XmlRpc::XmlRpcValue value_;
     valarray<float> bear_;
+    tf::Transform baseLaserTf_;
+    tf::Transform mapOdomTf_;
+    std::shared_ptr<geometry_msgs::Pose> mapOdom_data_;
 
     Yaml::Node param_;
 
 
     void getLaserPose();
 
-    util::Listener l;
+    rosnode::Listener l;
 
 
     vector<Position> getBoardPosition();
 
     vector<Position> xmlToPoints();
 
+    void findNN(vector<Position> &realPoints, vector<Position> &detectPointsW, vector<Position> &detectPoints);
+
+    void computeUpdatedPose(vector<Position> realPoints, vector<Position> detectPoints);
+
+    void updateMapOdomTf(tf::Transform laserPose, ros::Time time);
+
+    void transformPointsToWorld(vector<Position> &detectPoints, tf::Transform transform);
+
+    bool getMapOdomTf();
+
 public:
+    BoardFinder(ros::NodeHandle nh, ros::NodeHandle nh_private);
     vector<Position> detectBoard();
 
     bool updateSensor();
 
-    BoardFinder(ros::NodeHandle nh, ros::NodeHandle nh_provate);
 
-
-    void find();
+    void findLocation();
 
 
 
@@ -124,22 +136,24 @@ BoardFinder::BoardFinder(ros::NodeHandle nh, ros::NodeHandle nh_private) : nh_(n
 
     laser_data_ = std::get<0>(res);
 
+
+    auto res2 = l.createSubcriber<geometry_msgs::Pose>("maptoodomtf", 1);
+
+    mapOdom_data_ = std::get<0>(res2);
+
     string filename = "/home/waxz/refloc_ws/src/catkin_startup/launch/board.yaml";
 
-    param_ = util::readFile(filename);
-
-//    updateSensor();
+    param_ = Yaml::readFile(filename);
 
 
-
-//    getLaserPose();
-    getBoardPosition();
+    baseLaserTf_.setIdentity();
+    mapOdomTf_.setIdentity();
 
 
 }
 
 bool BoardFinder::updateSensor() {
-    bool getmsg = l.getOneMessage("scan", -1);
+    bool getmsg = l.getOneMessage("scan", 0.1);
     cout << "255" << laser_data_.get()->header;
     size_t size = laser_data_.get()->ranges.size();
     if (bear_.size() != size) {
@@ -151,16 +165,27 @@ bool BoardFinder::updateSensor() {
     return getmsg;
 }
 
+bool BoardFinder::getMapOdomTf() {
+    bool getmsg = l.getOneMessage("maptoodomtf", 0.1);
+    if (getmsg)
+        tf::poseMsgToTF(*mapOdom_data_, mapOdomTf_);
+
+
+    return getmsg;
+
+
+}
 void BoardFinder::getLaserPose() {
 
     ROS_INFO("getLaserPose start tf");
+    getMapOdomTf();
 //    l.getOneMessage("scan",-1);
     tf::Transform transform;
 
     transform.setIdentity();
 
-//    l.getTransform("map", "laser", transform);
-    tf::poseTFToMsg(transform, laserPose_);
+    l.getTransform("odom", "laser", transform);
+    tf::poseTFToMsg(mapOdomTf_ * transform, laserPose_);
     ROS_INFO_STREAM(laserPose_);
 }
 
@@ -187,7 +212,7 @@ vector<Position> BoardFinder::xmlToPoints() {
     Position p;
 
 
-    util::createMapFromXmlRpcValue<double>(value_[0]);
+    container::createMapFromXmlRpcValue<double>(value_[0]);
 //    return positions;
 
 #if debug_pub
@@ -243,7 +268,7 @@ vector<Position> BoardFinder::xmlToPoints() {
             point.y = p.y;
 
             geometry_msgs::Pose pose;
-            tf::poseTFToMsg(util::tf_util::createTransformFromTranslationYaw(point, p.yaw), pose);
+            tf::poseTFToMsg(tf_util::createTransformFromTranslationYaw(point, p.yaw), pose);
             msg.poses.push_back(pose);
 #endif
 
@@ -272,8 +297,8 @@ vector<Position> BoardFinder::detectBoard() {
         return ps;
 
     // vector to valarray
-    valarray<float> ranges = util::createValarrayFromVector<float>(laser_data_.get()->ranges);
-    valarray<float> intensities = util::createValarrayFromVector<float>(laser_data_.get()->intensities);
+    valarray<float> ranges = container::createValarrayFromVector<float>(laser_data_.get()->ranges);
+    valarray<float> intensities = container::createValarrayFromVector<float>(laser_data_.get()->intensities);
     if (intensities.size() == 0) {
         ROS_ERROR("scan has no intensities ");
         return ps;
@@ -353,7 +378,7 @@ vector<Position> BoardFinder::detectBoard() {
 
 
                 }
-                valarray<size_t> idx_val = util::createValarrayFromVector<size_t>(idx_vec);
+                valarray<size_t> idx_val = container::createValarrayFromVector<size_t>(idx_vec);
 
                 valarray<float> cluster_x = lightXs[idx_val];
 
@@ -366,7 +391,7 @@ vector<Position> BoardFinder::detectBoard() {
                 p.y = center_y;
 
                 ps.push_back(p);
-                cout << "x" << p.x << "y" << p.y << std::endl;
+                cout << "x" << p.x << "y" << p.y << "length:" << length << std::endl;
 
 
                 pose.position.x = p.x;
@@ -390,36 +415,198 @@ vector<Position> BoardFinder::detectBoard() {
     return ps;
 }
 
+void BoardFinder::transformPointsToWorld(vector<Position> &detectPoints, tf::Transform transform) {
+    geometry_msgs::Point point;
+    for (int i = 0; i < detectPoints.size(); i++) {
 
-void BoardFinder::find() {
+        tf::Point p(detectPoints[i].x, detectPoints[i].y, 0.0);
+        tf::pointTFToMsg(mapOdomTf_ * transform * p, point);
+
+        detectPoints[i].y = point.y;
+        detectPoints[i].x = point.x;
+    }
+}
+
+
+void
+BoardFinder::findNN(vector<Position> &realPoints, vector<Position> &detectPointsW, vector<Position> &detectPoints) {
+
+
+    vector<Position> realPointReg, detecctPointReg;
+
+
+#if 1
+    realPointReg = realPoints;
+    bool zerofisrt = false;
+    if (realPoints[0].y > realPoints[1].y) {
+        zerofisrt = true;
+    }
+    Position tmp;
+
+    if ((detectPointsW[0].y > detectPointsW[1].y) != (realPoints[0].y > realPoints[1].y)) {
+        realPoints[0] = realPointReg[1];
+        realPoints[1] = realPointReg[0];
+
+    }
+
+    return;
+
+#endif
+
+
+    // create kdtree
+    const int npoints = realPoints.size();
+    std::vector<kdtree::Point2d> points(npoints);
+    for (int i = 0; i < npoints; i++) {
+        points[0] = kdtree::Point2d(realPoints[i].x, realPoints[i].y);
+    }
+
+
+    // build k-d tree
+    kdtree::KdTree<kdtree::Point2d> kdtree(points);
+
+    double radius = 2.0;
+    // query point
+    vector<vector<int> > results;
+    for (int i = 0; i < detectPointsW.size(); i++) {
+        // create query point
+        //search
+        vector<int> res;
+
+
+        kdtree::Point2d query(detectPointsW[i].x, detectPointsW[i].y);
+        res = kdtree.queryIndex(query, kdtree::SearchMode::radius, radius);
+
+        results.push_back(res);
+    }
+
+    int startidx = 0;
+    for (int i = 0; i < results.size(); i++) {
+        if (results[i].size() == 1) {
+
+            detecctPointReg.push_back(detectPoints[i]);
+            realPointReg.push_back(realPoints[results[i][0]]);
+        }
+    }
+
+    realPoints = realPointReg;
+    detectPoints = detecctPointReg;
+
+    // check results, remove duplicate or invalid points;
+
+
+    // start with a point matcn only one point
+    // maybe it's fake detection
+
+
+    // clear and check distancce  and sort vector
+}
+
+void BoardFinder::updateMapOdomTf(tf::Transform laserPose, ros::Time time) {
+
+    tf::Transform odomTobase;
+
+    if (!l.getTransform("odom", "base_link", odomTobase, time))
+        return;
+
+    if (baseLaserTf_.getOrigin().getX() == 0.0)
+        l.getTransform("base_link", "laser", baseLaserTf_);
+
+    tf::Transform mapTOodomTf = laserPose * baseLaserTf_.inverse() * odomTobase.inverse();
+
+    l.sendTransform("map", "odom", mapTOodomTf, 0.1);
+
+
+}
+
+void BoardFinder::computeUpdatedPose(vector<Position> realPoints, vector<Position> detectPoints) {
+
+    // get points pairs
+    // compute target vector
+    int size = realPoints.size();
+    tf::Transform realTarget, detectTarget, laserPose;
+    geometry_msgs::Point translation;
+    double realX = 0, realY = 0, detectX = 0, detectY = 0;
+    for (int i = 0; i < size; i++) {
+        realX += realPoints[i].x;
+        realY += realPoints[i].y;
+        detectX += detectPoints[i].x;
+        detectY += detectPoints[i].y;
+
+    }
+    realX /= size;
+    realY /= size;
+    detectX /= size;
+    detectY /= size;
+
+    translation.x = realX;
+    translation.y = realY;
+    double realyaw = std::atan2(realPoints[0].y - realPoints[size - 1].y, realPoints[0].x - realPoints[size - 1].x);
+    double detectyaw = std::atan2(detectPoints[0].y - detectPoints[size - 1].y,
+                                  detectPoints[0].x - detectPoints[size - 1].x);
+
+    realTarget = tf_util::createTransformFromTranslationYaw(translation, realyaw);
+    translation.x = detectX;
+    translation.y = detectY;
+    detectTarget = tf_util::createTransformFromTranslationYaw(translation, detectyaw);
+
+    //compute laser pose
+
+    laserPose = realTarget * detectTarget.inverse();
+
+
+
+
+
+    // compute base_link pose
+
+
+    // get odom-baselink
+
+    updateMapOdomTf(laserPose, laser_data_.get()->header.stamp);
+
+
+    // compute map-odom
+
+
+}
+
+void BoardFinder::findLocation() {
     // get real board position
     vector<Position> realPoints = getBoardPosition();
     // detect board position
     vector<Position> detectPoints = detectBoard();
+    vector<Position> detectPointsW = detectPoints;
+
+    // get odom to laser transform
+    tf::Transform odomToLaserTf;
+    if (!l.getTransform("odom", "laser", odomToLaserTf, laser_data_.get()->header.stamp, 0.1, false)) {
+        ROS_ERROR("Can't get odom to laser tf");
+        return;
+    }
+
 
     // if successful
-    if (!realPoints.empty() && detectPoints.empty()) {
+    if (realPoints.size() > 1 && detectPoints.size() > 1) {
 
         // transform detectPoints to map frame
-        vector<geometry_msgs::PointStamped> points;
-        geometry_msgs::PointStamped point;
-        point.header.frame_id = "laser";
-        point.header.stamp = ros::Time::now();
-        for (int i = 0; i < detectPoints.size(); i++) {
 
-            point.point.x = detectPoints[i].x;
-            point.point.y = detectPoints[i].y;
+        transformPointsToWorld(detectPointsW, odomToLaserTf);
 
-            points.push_back(point);
+
+
+        // find match and sort vector
+        findNN(realPoints, detectPointsW, detectPoints);
+
+        // more than two points
+        if (detectPoints.size() > 1) {
+            // compute target vector
+            computeUpdatedPose(realPoints, detectPoints);
 
         }
-        l.tranformPoints(points, "map");
 
 
 #if 0
-        // find match and sort vector
-        findNN(realPoints, detectPoints);
-        // compute
         computeTagetVector();
         getBasePose();
         updateOdom();
@@ -428,76 +615,34 @@ void BoardFinder::find() {
     }
 }
 
-void ll() {
-    //get laser pose
-    // get near board position
-    // detect board
-    // compute target pose
-    /* 1. transorm detectBoard to map frame
-     * 2. sort and match
-     * 3. compute target pose
-     * */
-    // compute target pose and relative position
-    // update
-}
-
-
-// user-defined point type
-// inherits std::array in order to use operator[]
-class Point2d : public std::array<double, 2> {
-public:
-
-    // dimension of space (or "k" of k-d tree)
-    // KDTree class accesses this member
-    static const int DIM = 2;
-
-    // the constructors
-    Point2d() {}
-
-    Point2d(double x, double y) {
-        (*this)[0] = x;
-        (*this)[1] = y;
-    }
-
-
-};
-
 
 int main(int argc, char **argv) {
 
+#if 0
     // generate points
     // generate space
     const int width = 500;
     const int height = 500;
-    const int npoints = 100;
-    std::vector<Point2d> points(npoints);
-    for (int i = 0; i < npoints; i++) {
-        const int x = rand() % width;
-        const int y = rand() % height;
-        points[i] = Point2d(x, y);
-    }
+    const int npoints = 3;
+    std::vector<kdtree::Point2d> points(npoints);
+    points[0] =kdtree::Point2d(0,1);
+    points[1] =kdtree::Point2d(1,0);
+    points[2] =kdtree::Point2d(0.5,0.5);
+
     // build k-d tree
-    kdt::KDTree<Point2d> kdtree(points);
     // generate query (center of the space)
-    const Point2d query(0.5 * width, 0.5 * height);
+    const kdtree::Point2d query(0.4,0.4);
 
-    // nearest neigbor search
-    const int idx = kdtree.nnSearch(query);
-
-    // k-nearest neigbors search
-    const int k = 10;
-
-    const std::vector<int> knnIndices = kdtree.knnSearch(query, k);
     // radius search
-    const double radius = 50;
-    const std::vector<int> radIndices = kdtree.radiusSearch(query, radius);
+    const double radius = 1;
 
     vector<int> res;
-    util::KdTree<Point2d> tree(points);
-    res = tree.queryIndex(query, util::SearchMode::radius, radius);
+    kdtree::KdTree<kdtree::Point2d> tree(points);
+    res = tree.queryIndex(query, kdtree::SearchMode::radius, radius);
 
 
     return 0;
+#endif
 
 
 
@@ -514,7 +659,7 @@ int main(int argc, char **argv) {
 #endif
 
 #if 0
-    util::Listener test(nh, nh_private);
+    rosnode::Listener test(nh, nh_private);
 
 
     ros::Duration(1.5).sleep();
@@ -545,9 +690,11 @@ int main(int argc, char **argv) {
 //    kd.updateSensor();
 #endif
 
-    ros::Rate r(5);
+    ros::Rate r(10);
+    r.sleep();
     while (ros::ok()) {
-        kd.detectBoard();
+//        kd.detectBoard();
+        kd.findLocation();
 
         r.sleep();
     }
@@ -559,7 +706,7 @@ int main(int argc, char **argv) {
     // publish on o topic
     ros::Publisher chat_pub = nh.advertise<node::mytopic>("chat",1);
 
-    util::Listener l(nh, nh_private);
+    rosnode::Listener l(nh, nh_private);
 
     auto res2 = l.createSubcriber<sensor_msgs::LaserScan>("scan", 2);
     std::shared_ptr<sensor_msgs::LaserScan> data2 = std::get<0>(res2);

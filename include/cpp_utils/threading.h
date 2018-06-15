@@ -10,7 +10,7 @@
 #include <iostream>
 
 using std::cout;
-namespace util {
+namespace threading_util {
 
     // create thread
     class Threading {
@@ -191,12 +191,12 @@ namespace util {
     };
 
     template<class T>
-    class ThreadPublisher : public util::Task<T> {
+    class ThreadPublisher : public Task<T> {
     public:
         ros::NodeHandle nh_;
         ros::Publisher pub_;
 
-        explicit ThreadPublisher(int durationMsec, std::shared_ptr<T> data, ros::NodeHandle nh) : util::Task<T>(
+        explicit ThreadPublisher(int durationMsec, std::shared_ptr<T> data, ros::NodeHandle nh) : Task<T>(
                 durationMsec), nh_(nh) {
 
             this->shared_signal_->setData(data);

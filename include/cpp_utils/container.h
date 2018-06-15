@@ -16,7 +16,7 @@ using std::vector;
 using std::valarray;
 using std::map;
 using std::string;
-namespace util{
+namespace container {
     // convert vector to valarray
     template <class T>
     valarray<T> createValarrayFromVector(vector<T> vec){

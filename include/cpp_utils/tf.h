@@ -15,8 +15,8 @@
 #include <string>
 using std::vector;
 using std::string;
-namespace util{
-    namespace tf_util {
+
+namespace tf_util {
 
 
         // TF_NAN_INPUT usually is caused by invalid quaternions being sent. You will need to debug the program sending the quaternions.
@@ -294,5 +294,4 @@ namespace util{
     }
 
 
-}
 #endif //CATKIN_STARTUP_TF_H

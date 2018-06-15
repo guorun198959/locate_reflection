@@ -10,7 +10,7 @@
 #include <array>
 #include <vector>
 
-namespace util {
+namespace kdtree {
     using namespace std;
 
     // user-defined point type
