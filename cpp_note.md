@@ -90,5 +90,23 @@ These two should be equivalent, but the first would be preferred.
         T m = *msg;
         std::swap(*data,m);
         
-8.
+8. how to pass share_ptr
 Shortly, there is no reason to pass by value, unless the goal is to share ownership of an object (eg. between multiple threads).
+9. copy parameter file in cmake;
+
+
+    # add configure file
+    configure_file (
+            "${PROJECT_SOURCE_DIR}/launch/board.yaml"
+            "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/board.yaml"
+    )
+    
+10. try and catch
+
+
+    try {
+
+    }catch (...){
+
+        printf("catch any exception!!\n");
+    }

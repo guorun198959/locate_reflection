@@ -3,6 +3,12 @@ visibel_range_ratio: 0.8
 intensity_thresh: 1000
 neighbor_thresh: 0.03
 length_thresh: 0.02
+radius: 1
+distScoreBase: 2
+angleScoreBase: 3
+distRatio: 4
+angleRatio: 5
+matchScore: 6
 board_position:
   - x: 1
     y: 0.078

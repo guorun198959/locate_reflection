@@ -66,6 +66,12 @@ include_directories(
         ${EIGEN_INCLUDE_DIRS})
 
 
+# add configure file
+configure_file(
+        "${PROJECT_SOURCE_DIR}/launch/board.yaml"
+        "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/board.yaml"
+)
+message("== ${PROJECT_SOURCE_DIR} , ${PROJECT_BINARY_DIR},${CMAKE_RUNTIME_OUTPUT_DIRECTORY},${CMAKE_BINARY_DIR}")
 
 add_library(${PROJECT_NAME} src/reflection_localization.cpp)
 #
@@ -96,6 +102,8 @@ install(DIRECTORY launch/
 add_executable(${PROJECT_NAME}_node src/main.cpp include/yaml/Yaml.cpp)
 target_link_libraries(${PROJECT_NAME}_node ${catkin_LIBRARIES} ${PROJECT_NAME})
 
+add_executable(matrix src/start_up.cpp include/yaml/Yaml.cpp)
+target_link_libraries(matrix)
 
 
 install(

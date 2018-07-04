@@ -12,6 +12,9 @@
 #include <boost/random/variate_generator.hpp>
 #include <cpp_utils/random.h>
 
+#include <cpp_utils/parse.h>
+
+
 
 using std::vector;
 using std::tuple;
@@ -21,26 +24,102 @@ double gen_normal_3(T &generator) {
     return generator();
 }
 
+// store position
+struct Position {
+    double x;
+    double y;
+    double yaw;
+};
+
+
 struct AssignmentMatrix {
     Eigen::MatrixXf assignmentMatrix;
     vector<tuple<int, int> > assignments;
+    double assignScores;
+    vector<double> scoreVec;
 
     AssignmentMatrix(int row, int col) : assignmentMatrix(Eigen::MatrixXf(row, col)) {
         assignmentMatrix.setZero();
         assignments.clear();
+        scoreVec.clear();
+        assignScores = 0.0;
     };
 
     void clear() {
         assignmentMatrix.setZero();
         assignments.clear();
+        scoreVec.clear();
     }
 
-    void add(int i, int m) {
+    void add(int i, int m, double score) {
+        if ((assignmentMatrix.row(i).array() == 1).any()) {
+            // if add this get better score;add
+            // else return with unchange
+            if (score < scoreVec[scoreVec.size() - 1])
+                return;
+
+            assignmentMatrix.row(i).setZero();
+            assignments.pop_back();
+            scoreVec.pop_back();
+        }
         assignmentMatrix(i, m) = 1;
         assignments.push_back(std::make_tuple(i, m));
+        scoreVec.push_back(score);
+    }
+
+    double getScore() {
+        if (assignments.empty())
+            return 0;
+        double sum = 0;
+        for (int i = 0; i < scoreVec.size(); i++) sum += scoreVec[i];
+        sum += assignScores;
+
+        return sum / double(scoreVec.size() + 1);
     }
 };
 
+
+double scoreFunc(double x, double base, double ratio) {
+    return pow(base, ratio * x);
+}
+
+
+class PatternMatcher {
+private:
+    // parameter
+    double radius_;
+    double distScoreBase_;
+    double angleScoreBase_;
+    double distRatio_;
+    double angleRatio_;
+    double matchScore_;
+
+    // method
+    void initParams() {
+
+        string filename = "board.yaml";
+        Yaml::Node param_;
+        try {
+            param_ = Yaml::readFile(filename);
+
+        } catch (...) {
+
+            printf("read failed!!\n");
+            exit(0);
+        }
+        radius_ = param_["radius"].As<double>(0.1);
+        distScoreBase_ = param_["distScoreBase"].As<double>(0.1);
+        angleScoreBase_ = param_["angleScoreBase"].As<double>(0.1);
+        distRatio_ = param_["distRatio"].As<double>(2);
+        angleRatio_ = param_["angleRatio"].As<double>(6);
+        matchScore_ = param_["matchScore"].As<double>(1.1);
+
+
+    }
+
+public:
+
+};
 void f() {
     using namespace std;
     using namespace Eigen;
@@ -48,22 +127,24 @@ void f() {
     // parameters
     double radius = 0.3;
 
+    double distScoreBase_ = 0.1, angleScoreBase_ = 0.05;
+
+    double matchScore_ = 1.0;
+
     // observe points and map points
     MatrixXf PointObs(3, 2);
-    MatrixXf PointMap(3, 2);
+    MatrixXf PointMap(4, 2);
 
     PointObs << -1, 2, 1, 2, 1.5, 1.5;
-    PointMap << -1.1, 1.9, 0.9, 1.9, 1.4, 1.4;
+    PointMap << -3.1, 1.9, -1.1, 1.9, 0.9, 1.9, 1.4, 1.4;
 
 
     cout << "get obs points = \n" << PointObs << endl;
     cout << "get map points = \n" << PointMap << endl;
-    cout << "distance = " << (PointObs - PointMap).norm() << endl;
+//    cout << "distance = " << (PointObs - PointMap).norm() << endl;
     cout << "get obs shape = " << PointObs.rows() << "," << PointObs.cols() << endl;
-    PointObs.colwise();
 
-    // distance matrix
-    MatrixXf distanceMatrixObs(3, 3);
+
 
     // assign matrix
     vector<AssignmentMatrix> rootvVec;
@@ -74,12 +155,13 @@ void f() {
     // find start pair as root
     // return
     // select one pair [i,j] in obs
+    cout << "==== start find root " << endl;
     for (int i = 0; i < PointObs.rows(); i++) {
 
         for (int j = 0; j < i; j++) {
 
             double distobs = (PointObs.row(i) - PointObs.row(j)).norm();
-            printf("obs distance %f, between %d,%d \n", distobs, i, j);
+            printf("@ obs distance %f, between %d,%d \n", distobs, i, j);
 
             // loop in map
             for (int m = 0; m < PointMap.rows(); m++) {
@@ -93,8 +175,8 @@ void f() {
                         printf("i=%d, j=%d,m=%d,n=%d\n", i, j, m, n);
                         // assign matrix
                         AssignmentMatrix Am(PointObs.rows(), PointMap.rows());
-                        Am.add(i, m);
-                        Am.add(j, n);
+                        Am.add(i, m, 0);
+                        Am.add(j, n, 0);
 
 
                         rootvVec.push_back(Am);
@@ -107,8 +189,13 @@ void f() {
 
         }
     }
+    cout << "==== done find root " << endl;
 
-    // chech assign matrix
+    cout << "==== start check assignment , Num " << rootvVec.size() << endl;
+
+    // check assign matrix
+
+    // calculate match sore for each matrix
 
     for (int idx = 0; idx < rootvVec.size(); idx++) {
         cout << "check assign = \n" << rootvVec[idx].assignmentMatrix << endl;
@@ -129,7 +216,8 @@ void f() {
 
 
         // obsL  < obsR
-        cout << "L" << obsL << "R" << obsR << endl;
+        cout << "obsL " << obsL << " obsR " << obsR << endl;
+        cout << "mapL " << mapL << " mapR " << mapR << endl;
 
         // if obsnum >2
         // it must be one case in below
@@ -138,7 +226,7 @@ void f() {
         //
 
         // check point < L
-        int tmpL = mapL - 1;
+        int tmpL = mapL - 1, tmpR = mapR - 1;
         for (int obsid = obsL - 1; obsid >= 0; obsid--) {
             cout << "point < L obsid = " << obsid << endl;
             for (int mapid = tmpL; mapid >= 0; mapid--) {
@@ -147,18 +235,33 @@ void f() {
                 // how to compute match score
                 // for one point
                 // caculate distance to pointL, pointR,angle
-                double distDiff = (PointObs.row(obsid) - PointObs.row(obsL)).norm() -
-                                  (PointMap.row(mapid) - PointMap.row(mapL)).norm();
-                double angleDiff = atan2(PointObs(obsid, 1) - PointObs(obsL, 1), PointObs(obsid, 1) - PointObs(obsL, 0))
-                                   - atan2(PointObs(obsR, 1) - PointObs(obsL, 1), PointObs(obsR, 0) - PointObs(obsL, 0))
-                                   - (atan2(PointMap(mapid, 1) - PointMap(mapL, 1),
-                                            PointMap(mapid, 1) - PointMap(mapL, 0))
-                                      - atan2(PointMap(mapR, 1) - PointMap(mapL, 1),
-                                              PointMap(mapR, 0) - PointMap(mapL, 0)));
+                double distDiff = fabs((PointObs.row(obsid) - PointObs.row(obsL)).norm() +
+                                       (PointObs.row(obsid) - PointObs.row(obsR)).norm() -
+                                       ((PointMap.row(mapid) - PointMap.row(mapL)).norm() +
+                                        (PointMap.row(mapid) - PointMap.row(mapR)).norm())
+                );
+                double angleDiff = fabs(
+                        atan2(PointObs(obsid, 1) - PointObs(obsL, 1), PointObs(obsid, 0) - PointObs(obsL, 0))
+                        - atan2(PointObs(obsR, 1) - PointObs(obsL, 1), PointObs(obsR, 0) - PointObs(obsL, 0))
+                        - (atan2(PointMap(mapid, 1) - PointMap(mapL, 1),
+                                 PointMap(mapid, 0) - PointMap(mapL, 0))
+                           - atan2(PointMap(mapR, 1) - PointMap(mapL, 1),
+                                   PointMap(mapR, 0) - PointMap(mapL, 0))));
 
-                cout << "distDiff = " << distDiff << "angleDiff = " << angleDiff << endl;
-                if (1) {
-                    tmpL = mapL - 1;
+                // if distance < thresh
+                // add to assignments
+                // update matrix
+                double score = scoreFunc(distDiff, distScoreBase_, 2) + scoreFunc(angleDiff, angleScoreBase_, 6);
+                cout << "distDiff = " << distDiff << "angleDiff = " << angleDiff << "score = " << score << endl;
+
+                if (score > matchScore_) {
+                    // update bound
+                    tmpL = mapid - 1;
+                    // update score
+                    rootvVec[idx].add(obsid, mapid, score);
+                    cout << "update assign matrix = \n " << rootvVec[idx].assignmentMatrix << endl;
+
+
 
                 }
 
@@ -167,42 +270,81 @@ void f() {
         }
 
         // check   L<point<R
+        tmpL = mapL + 1;
         for (int obsid = obsL + 1; obsid < obsR; obsid++) {
             cout << "L<point<R obsid = " << obsid << endl;
 
-            for (int mapid = mapL + 1; mapid < mapR; mapid++) {
+            for (int mapid = tmpL; mapid < mapR; mapid++) {
                 cout << "L<point<R mapid = " << mapid << endl;
-                double distDiff = (PointObs.row(obsid) - PointObs.row(obsL)).norm() -
-                                  (PointMap.row(mapid) - PointMap.row(mapL)).norm();
-                double angleDiff = atan2(PointObs(obsid, 1) - PointObs(obsL, 1), PointObs(obsid, 1) - PointObs(obsL, 0))
-                                   - atan2(PointObs(obsR, 1) - PointObs(obsL, 1), PointObs(obsR, 0) - PointObs(obsL, 0))
-                                   - (atan2(PointMap(mapid, 1) - PointMap(mapL, 1),
-                                            PointMap(mapid, 1) - PointMap(mapL, 0))
-                                      - atan2(PointMap(mapR, 1) - PointMap(mapL, 1),
-                                              PointMap(mapR, 0) - PointMap(mapL, 0)));
+                double distDiff = fabs((PointObs.row(obsid) - PointObs.row(obsL)).norm() +
+                                       (PointObs.row(obsid) - PointObs.row(obsR)).norm() -
+                                       ((PointMap.row(mapid) - PointMap.row(mapL)).norm() +
+                                        (PointMap.row(mapid) - PointMap.row(mapR)).norm())
+                );
+                double angleDiff = fabs(
+                        atan2(PointObs(obsid, 1) - PointObs(obsL, 1), PointObs(obsid, 0) - PointObs(obsL, 0))
+                        - atan2(PointObs(obsR, 1) - PointObs(obsL, 1), PointObs(obsR, 0) - PointObs(obsL, 0))
+                        - (atan2(PointMap(mapid, 1) - PointMap(mapL, 1),
+                                 PointMap(mapid, 0) - PointMap(mapL, 0))
+                           - atan2(PointMap(mapR, 1) - PointMap(mapL, 1),
+                                   PointMap(mapR, 0) - PointMap(mapL, 0))));
 
-                cout << "distDiff = " << distDiff << "angleDiff = " << angleDiff << endl;
+                double score = scoreFunc(distDiff, distScoreBase_, 2) + scoreFunc(angleDiff, angleScoreBase_, 6);
+                cout << "distDiff = " << distDiff << "angleDiff = " << angleDiff << "score = " << score << endl;
+
+                if (score > matchScore_) {
+                    // update bound
+                    tmpL = mapid + 1;
+                    // update score
+                    rootvVec[idx].add(obsid, mapid, score);
+                    cout << "update assign matrix = \n " << rootvVec[idx].assignmentMatrix << endl;
+
+
+                }
+
 
             }
         }
 
         // check point >R
 
+        tmpR = mapR + 1;
         for (int obsid = obsR + 1; obsid < rootvVec[idx].assignmentMatrix.rows(); obsid++) {
             cout << "point >R obsid = " << obsid << endl;
 
-            for (int mapid = obsR + 1; mapid < rootvVec[idx].assignmentMatrix.cols(); mapid++) {
+            for (int mapid = tmpR; mapid < rootvVec[idx].assignmentMatrix.cols(); mapid++) {
                 cout << "point >R mapid = " << mapid << endl;
-                double distDiff = (PointObs.row(obsid) - PointObs.row(obsL)).norm() -
-                                  (PointMap.row(mapid) - PointMap.row(mapL)).norm();
-                double angleDiff = atan2(PointObs(obsid, 1) - PointObs(obsL, 1), PointObs(obsid, 1) - PointObs(obsL, 0))
-                                   - atan2(PointObs(obsR, 1) - PointObs(obsL, 1), PointObs(obsR, 0) - PointObs(obsL, 0))
-                                   - (atan2(PointMap(mapid, 1) - PointMap(mapL, 1),
-                                            PointMap(mapid, 1) - PointMap(mapL, 0))
-                                      - atan2(PointMap(mapR, 1) - PointMap(mapL, 1),
-                                              PointMap(mapR, 0) - PointMap(mapL, 0)));
+                double distDiff = fabs((PointObs.row(obsid) - PointObs.row(obsL)).norm() +
+                                       (PointObs.row(obsid) - PointObs.row(obsR)).norm() -
+                                       ((PointMap.row(mapid) - PointMap.row(mapL)).norm() +
+                                        (PointMap.row(mapid) - PointMap.row(mapR)).norm())
+                );
+                double angleDiff = fabs(
+                        atan2(PointObs(obsid, 1) - PointObs(obsL, 1), PointObs(obsid, 0) - PointObs(obsL, 0))
+                        - atan2(PointObs(obsR, 1) - PointObs(obsL, 1), PointObs(obsR, 0) - PointObs(obsL, 0))
+                        - (atan2(PointMap(mapid, 1) - PointMap(mapL, 1),
+                                 PointMap(mapid, 0) - PointMap(mapL, 0))
+                           - atan2(PointMap(mapR, 1) - PointMap(mapL, 1),
+                                   PointMap(mapR, 0) - PointMap(mapL, 0))));
 
-                cout << "distDiff = " << distDiff << "angleDiff = " << angleDiff << endl;
+                double test = -(atan2(PointMap(mapid, 1) - PointMap(mapL, 1),
+                                      PointMap(mapid, 0) - PointMap(mapL, 0))
+                                - atan2(PointMap(mapR, 1) - PointMap(mapL, 1),
+                                        PointMap(mapR, 0) - PointMap(mapL, 0)));
+
+                double score = scoreFunc(distDiff, distScoreBase_, 2) + scoreFunc(angleDiff, angleScoreBase_, 6);
+                cout << "distDiff = " << distDiff << "angleDiff = " << angleDiff << "score = " << score << endl;
+
+                if (score > matchScore_) {
+                    // update bound
+                    tmpR = mapid + 1;
+                    // update score
+                    rootvVec[idx].add(obsid, mapid, score);
+                    cout << "update assign matrix = \n" << rootvVec[idx].assignmentMatrix << endl;
+
+
+                }
+
 
             }
         }
@@ -211,34 +353,75 @@ void f() {
         // if obsnum = 2
         // add origin point to it and compute matrix distance
         // get matrix
+        MatrixXf originPoint(1, 2);
+        originPoint << 0.0, 0.0;
+        double distDiff = fabs(PointObs.row(obsL).norm() + PointObs.row(obsR).norm() -
+                               (PointMap.row(mapL).norm() + PointMap.row(mapR).norm())
+        );
+        double angleDiff = fabs(atan2(-PointObs(obsL, 1), -PointObs(obsL, 0))
+                                - atan2(PointObs(obsR, 1) - PointObs(obsL, 1), PointObs(obsR, 0) - PointObs(obsL, 0))
+                                - (atan2(-PointMap(mapL, 1),
+                                         -PointMap(mapL, 0))
+                                   - atan2(PointMap(mapR, 1) - PointMap(mapL, 1),
+                                           PointMap(mapR, 0) - PointMap(mapL, 0))));
 
 
-        for (int asi = 0; asi < rootvVec[idx].assignments.size(); asi++) {
-            // root1,root2
+        double score = scoreFunc(distDiff, distScoreBase_, 2) + scoreFunc(angleDiff, angleScoreBase_, 6);
+        cout << "origin distDiff = " << distDiff << "angleDiff = " << angleDiff << "score = " << score << endl;
 
-            // start from root1
-
-
-            // for a point < root
-            // compute distace matrix
-            // distance to point1 and point2
-            // angle matrix
-            // angle between point1-point point1-point2
-
-            // convert diff to score
+        rootvVec[idx].assignScores += score;
 
 
 
 
 
 
-        }
+        // for each assignment matrix
+        // caculate it's count
+        // how to use diff
+
+
+        // combine all matrix to one matrix
+        // given accumulate score to each element
+        // get each pattern a score
+
+
+
+
 
 
 
 
         // result in a full assign matrix
     }
+
+
+    // set all assignment matrix value to one matrix
+    // given each assignment a score
+    MatrixXf scoreMatrix(PointObs.rows(), PointMap.rows());
+    scoreMatrix.setZero();
+    for (int i = 0; i < rootvVec.size(); i++) {
+
+        cout << "each scorematrix = \n" << rootvVec[i].getScore() * rootvVec[i].assignmentMatrix << endl;
+        scoreMatrix += rootvVec[i].getScore() * rootvVec[i].assignmentMatrix;
+    }
+
+    cout << "scoreMatrix = \n" << scoreMatrix << endl;
+
+    int bestId = 0;
+    double bestScore = 0;
+    for (int i = 0; i < rootvVec.size(); i++) {
+
+        double score = (scoreMatrix.array() * rootvVec[i].assignmentMatrix.array()).sum();
+        cout << "each matrix score = \n" << score << endl;
+
+        if (score > bestScore) {
+            bestScore = score;
+            bestId = i;
+        }
+
+    }
+    cout << "get best id " << bestId << "best score " << bestScore << endl;
 
     // check assign matrix
     // choose best
@@ -299,6 +482,19 @@ Eigen::MatrixXf createMatrixFromVector(std::vector<float> vec, int row, int col)
 
 // predefine matri
 int main() {
+
+
+    string filename = "board.yaml";
+    Yaml::Node param_;
+    try {
+        param_ = Yaml::readFile(filename);
+
+    } catch (...) {
+
+        printf("read failed!!\n");
+    }
+    auto visibel_angle = param_["visibel_angle1"].As<double>(666);
+    auto visibel_range_ratio = param_["visibel_range_ratio"].As<double>();
 
     f();
     return 0;

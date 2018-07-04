@@ -26,6 +26,8 @@
 #include <geometry_msgs/PoseArray.h>
 #include <tf/tf.h>
 
+#include <Eigen/Dense>
+
 
 //
 #include <XmlRpc.h>
@@ -141,7 +143,7 @@ BoardFinder::BoardFinder(ros::NodeHandle nh, ros::NodeHandle nh_private) : nh_(n
 
     mapOdom_data_ = std::get<0>(res2);
 
-    string filename = "/home/waxz/refloc_ws/src/catkin_startup/launch/board.yaml";
+    string filename = "board.yaml";
 
     param_ = Yaml::readFile(filename);
 
