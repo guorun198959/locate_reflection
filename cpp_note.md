@@ -113,3 +113,19 @@ Shortly, there is no reason to pass by value, unless the goal is to share owners
     
         printf("catch any exception!!\n");
     }
+    
+11.bind function object
+https://stackoverflow.com/questions/7039474/can-i-use-boost-bind-with-a-function-template
+
+    struct FCall3Templ {
+    
+      template<typename ARG1, typename ARG2>
+      ARG1 operator()(ARG1 arg1, ARG2 arg2) {
+        return arg1+arg2;
+      }
+    };
+    int main() {
+      boost::bind<int>(FCall3Templ(), 45, 56)();
+      boost::bind<double>(FCall3Templ(), 45.0, 56.0)();
+      return 0;
+    }

@@ -304,6 +304,8 @@ namespace threading_util {
         template<class T>
         void setTarget(T target, tf::TransformBroadcaster *tfb);
 
+        template<class T, class F>
+        void setTarget(T target, F arg);
         /** Destructor
          *
          * Blocks until the thread has finished executing, if it hasn't
@@ -357,7 +359,14 @@ namespace threading_util {
         internalThread_ = boost::thread(boost::bind(&ThreadClass::threadMain<T>, this, target, tfb));
     }
 
+    template<class T, class F>
+    void ThreadClass::setTarget(T target, F arg) {
+        // this should always be the last line in the constructor
+        internalThread_ = boost::thread(boost::bind<void>(target, arg));
+    }
+
 //-----------------------------------------------------------------------------
+    // demo thread
     template<class T>
     inline void ThreadClass::threadMain(T target, tf::TransformBroadcaster *tfb) {
         try {
@@ -388,6 +397,41 @@ namespace threading_util {
     } // threadMain
 
 //-----------------------------------------------------------------------------
+
+
+
+    struct Func_tfb {
+        tf::TransformBroadcaster *tfb_;
+
+        Func_tfb(tf::TransformBroadcaster *tfb) : tfb_(tfb) {};
+
+        template<class T>
+        void operator()(T data) {
+            try {
+                /* add whatever code you want the thread to execute here. */
+                while (1) {
+
+                    cout << "pub" << data.get()->stamp_ << endl;
+
+                    tfb_->sendTransform(*data);
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+                }
+
+            }
+            catch (boost::thread_interrupted &interruption) {
+                // thread was interrupted, this is expected.
+                cout << "******************thread was interrupted, this is expected." << endl;
+
+            }
+            catch (std::exception &e) {
+                // an unhandled exception reached this point, this constitutes an error
+                cout << "****************** an unhandled exception reached this point, this constitutes an error"
+                     << endl;
+
+            }
+        }
+    };
 
 
 }

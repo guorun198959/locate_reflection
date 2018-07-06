@@ -28,6 +28,7 @@ std::pair<Vector3, Vector3> best_line_from_points(const std::vector<Vector3> &c)
 }
 
 
+
 int main(int argc, char **argv) {
 
 
@@ -77,8 +78,10 @@ int main(int argc, char **argv) {
     std::shared_ptr<tf::StampedTransform> data = std::make_shared<tf::StampedTransform>(transformstamped);
     data.get()->setIdentity();
 
-    threadClass.setTarget(data, tfb);
+//    threadClass.setTarget(data, tfb);
 
+    threading_util::Func_tfb ff(tfb);
+    threadClass.setTarget(ff, data);
 
     // test matcher
 //    ros::Rate r(10);
