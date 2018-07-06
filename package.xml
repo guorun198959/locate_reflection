@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <package format="2">
-    <name>catkin_startup</name>
+    <name>locate_reflection</name>
     <version>0.0.10</version>
     <description>The catkinized Occupancy Grid Utils package</description>
     <maintainer email="jservos@clearpathrobotics.com">jservos</maintainer>

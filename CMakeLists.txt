@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 2.8.3)
-project(catkin_startup)
+project(locate_reflection)
 
 
 # C++ compile flags
@@ -71,36 +71,14 @@ configure_file(
         "${PROJECT_SOURCE_DIR}/launch/board.yaml"
         "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/board.yaml"
 )
-message("== ${PROJECT_SOURCE_DIR} , ${PROJECT_BINARY_DIR},${CMAKE_RUNTIME_OUTPUT_DIRECTORY},${CMAKE_BINARY_DIR}")
-
-add_library(${PROJECT_NAME} src/reflection_localization.cpp)
-#
-target_link_libraries(${PROJECT_NAME} ${catkin_LIBRARIES} )
-#
 
 
-
-
-install(
-        TARGETS ${PROJECT_NAME}
-        ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-        LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-        RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
-)
-
-install(DIRECTORY include/${PROJECT_NAME}/
-        DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION}
-        FILES_MATCHING PATTERN "*.h"
-        )
-install(DIRECTORY launch/
-        DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/launch
-        PATTERN ".svn" EXCLUDE)
 
 
 #### test node
 
-add_executable(${PROJECT_NAME}_node src/main.cpp include/yaml/Yaml.cpp)
-target_link_libraries(${PROJECT_NAME}_node ${catkin_LIBRARIES} ${PROJECT_NAME})
+add_executable(${PROJECT_NAME}_node src/main.cpp include/yaml/Yaml.cpp src/boardFinder.cpp src/patternMatcher.cpp)
+target_link_libraries(${PROJECT_NAME}_node ${catkin_LIBRARIES})
 
 add_executable(matrix src/start_up.cpp include/yaml/Yaml.cpp)
 target_link_libraries(matrix)

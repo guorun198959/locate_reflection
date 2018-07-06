@@ -46,13 +46,13 @@ namespace container {
     }
 
 //xmlrpc value to map and vector
-    XmlRpc::XmlRpcValue getXmlRpcValueFromRos(ros::NodeHandle nh, string key){
+    inline XmlRpc::XmlRpcValue getXmlRpcValueFromRos(ros::NodeHandle nh, string key) {
         XmlRpc::XmlRpcValue value;
         nh.getParam(key, value);
         return value;
     }
 
-    vector<XmlRpc::XmlRpcValue> createVectorFromXmlRpcValue(XmlRpc::XmlRpcValue value){
+    inline vector<XmlRpc::XmlRpcValue> createVectorFromXmlRpcValue(XmlRpc::XmlRpcValue value) {
         vector<XmlRpc::XmlRpcValue> vec;
         if (value.getType() == XmlRpc::XmlRpcValue::TypeArray){
             for(size_t i=0;i<value.size();i++){

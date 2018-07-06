@@ -11,10 +11,9 @@
 using std::string;
 namespace Yaml {
 
-    Yaml::Node readFile(string filename) {
-        using namespace Yaml;
-        Yaml::Node root;
-        Yaml::Parse(root, filename.c_str());
+    inline Node readFile(string filename) {
+        Node root;
+        Parse(root, filename.c_str());
         return root;
     }
 }

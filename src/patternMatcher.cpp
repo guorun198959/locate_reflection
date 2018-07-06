@@ -1,156 +1,55 @@
 //
-// Created by waxz on 18-6-8.
+// Created by waxz on 18-7-5.
 //
 
-#include <Eigen/Dense>
-#include <iostream>
-#include <vector>
-#include <tuple>
-#include <ctime>
-#include <boost/random/normal_distribution.hpp>
-#include <boost/random/mersenne_twister.hpp>
-#include <boost/random/variate_generator.hpp>
-#include <cpp_utils/random.h>
+#include <locate_reflection/patternMatcher.h>
 
-#include <cpp_utils/parse.h>
+using Eigen::MatrixXf;
+using std::endl;
+using std::cout;
 
 
+void PatternMatcher::initParams() {
+    string filename = "board.yaml";
+    Yaml::Node param_;
+    try {
+        param_ = Yaml::readFile(filename);
 
-using std::vector;
-using std::tuple;
-
-template<class T>
-double gen_normal_3(T &generator) {
-    return generator();
+    } catch (...) {
+        printf("read %s failed!!\n", filename.c_str());
+        exit(0);
+    }
+    radius_ = param_["radius"].As<double>(0.1);
+    distScoreBase_ = param_["distScoreBase"].As<double>(0.1);
+    angleScoreBase_ = param_["angleScoreBase"].As<double>(0.1);
+    distRatio_ = param_["distRatio"].As<double>(2);
+    angleRatio_ = param_["angleRatio"].As<double>(6);
+    matchScore_ = param_["matchScore"].As<double>(1.1);
 }
 
-// store position
-struct Position {
-    double x;
-    double y;
-    double yaw;
-};
-
-
-struct AssignmentMatrix {
-    Eigen::MatrixXf assignmentMatrix;
-    vector<tuple<int, int> > assignments;
-    double assignScores;
-    vector<double> scoreVec;
-
-    AssignmentMatrix(int row, int col) : assignmentMatrix(Eigen::MatrixXf(row, col)) {
-        assignmentMatrix.setZero();
-        assignments.clear();
-        scoreVec.clear();
-        assignScores = 0.0;
-    };
-
-    void clear() {
-        assignmentMatrix.setZero();
-        assignments.clear();
-        scoreVec.clear();
-    }
-
-    void add(int i, int m, double score) {
-        if ((assignmentMatrix.row(i).array() == 1).any()) {
-            // if add this get better score;add
-            // else return with unchange
-            if (score < scoreVec[scoreVec.size() - 1])
-                return;
-
-            assignmentMatrix.row(i).setZero();
-            assignments.pop_back();
-            scoreVec.pop_back();
-        }
-        assignmentMatrix(i, m) = 1;
-        assignments.push_back(std::make_tuple(i, m));
-        scoreVec.push_back(score);
-    }
-
-    double getScore() {
-        if (assignments.empty())
-            return 0;
-        double sum = 0;
-        for (int i = 0; i < scoreVec.size(); i++) sum += scoreVec[i];
-        sum += assignScores;
-
-        return sum / double(scoreVec.size() + 1);
-    }
-};
-
-
-double scoreFunc(double x, double base, double ratio) {
-    return pow(base, ratio * x);
+PatternMatcher::PatternMatcher() {
+    initParams();
 }
 
-
-class PatternMatcher {
-private:
-    // parameter
-    double radius_;
-    double distScoreBase_;
-    double angleScoreBase_;
-    double distRatio_;
-    double angleRatio_;
-    double matchScore_;
-
-    // method
-    void initParams() {
-
-        string filename = "board.yaml";
-        Yaml::Node param_;
-        try {
-            param_ = Yaml::readFile(filename);
-
-        } catch (...) {
-
-            printf("read failed!!\n");
-            exit(0);
-        }
-        radius_ = param_["radius"].As<double>(0.1);
-        distScoreBase_ = param_["distScoreBase"].As<double>(0.1);
-        angleScoreBase_ = param_["angleScoreBase"].As<double>(0.1);
-        distRatio_ = param_["distRatio"].As<double>(2);
-        angleRatio_ = param_["angleRatio"].As<double>(6);
-        matchScore_ = param_["matchScore"].As<double>(1.1);
-
-
+vector<tuple<int, int> > PatternMatcher::match(vector<Position> &obsPos, vector<Position> &mapPos) {
+    // convert vector to matrix
+    MatrixXf PointObs(int(obsPos.size()), 2);
+    MatrixXf PointMap(int(mapPos.size()), 2);
+    for (int i = 0; i < obsPos.size(); i++) {
+        PointObs.row(i) << obsPos[i].x, obsPos[i].y;
     }
 
-public:
-
-};
-void f() {
-    using namespace std;
-    using namespace Eigen;
-
-    // parameters
-    double radius = 0.3;
-
-    double distScoreBase_ = 0.1, angleScoreBase_ = 0.05;
-
-    double matchScore_ = 1.0;
-
-    // observe points and map points
-    MatrixXf PointObs(3, 2);
-    MatrixXf PointMap(4, 2);
-
-    PointObs << -1, 2, 1, 2, 1.5, 1.5;
-    PointMap << -3.1, 1.9, -1.1, 1.9, 0.9, 1.9, 1.4, 1.4;
-
+    for (int i = 0; i < mapPos.size(); i++) {
+        PointMap.row(i) << mapPos[i].x, mapPos[i].y;
+    }
 
     cout << "get obs points = \n" << PointObs << endl;
     cout << "get map points = \n" << PointMap << endl;
 //    cout << "distance = " << (PointObs - PointMap).norm() << endl;
     cout << "get obs shape = " << PointObs.rows() << "," << PointObs.cols() << endl;
 
-
-
     // assign matrix
     vector<AssignmentMatrix> rootvVec;
-
-
-
 
     // find start pair as root
     // return
@@ -171,48 +70,34 @@ void f() {
                     double distMap = (PointMap.row(m) - PointMap.row(n)).norm();
                     printf("map distance %f, between %d,%d \n", distMap, m, n);
 
-                    if (fabs(distobs - distMap) < radius) {
+                    if (fabs(distobs - distMap) < radius_) {
                         printf("i=%d, j=%d,m=%d,n=%d\n", i, j, m, n);
                         // assign matrix
                         AssignmentMatrix Am(PointObs.rows(), PointMap.rows());
                         Am.add(i, m, 0);
                         Am.add(j, n, 0);
-
-
                         rootvVec.push_back(Am);
                     }
-
-
                 }
             }
-
-
         }
     }
     cout << "==== done find root " << endl;
     // check if find root successful
     if (rootvVec.empty()) {
         cout << "find root failure" << endl;
-        return;
+        return vector<tuple<int, int> >();
     }
 
     cout << "==== start check assignment , Num " << rootvVec.size() << endl;
-
     // check assign matrix
-
     // calculate match sore for each matrix
-
     for (int idx = 0; idx < rootvVec.size(); idx++) {
         cout << "check assign = \n" << rootvVec[idx].assignmentMatrix << endl;
-
-
         // for each point in obs except root pair
         // find assignment in map
-
         // for each row in assign matrix
         // check it's norm , assigned or not
-        //
-
         // for assign matrix
         int obsR = std::get<0>(rootvVec[idx].assignments[0]);
         int obsL = std::get<0>(rootvVec[idx].assignments[1]);
@@ -264,14 +149,9 @@ void f() {
                     tmpL = mapid - 1;
                     // update score
                     rootvVec[idx].add(obsid, mapid, score);
-                    cout << "update assign matrix = \n " << rootvVec[idx].assignmentMatrix << endl;
-
-
-
+                    cout << "update assign matrix = \n" << rootvVec[idx].assignmentMatrix << endl;
                 }
-
             }
-
         }
 
         // check   L<point<R
@@ -303,11 +183,7 @@ void f() {
                     // update score
                     rootvVec[idx].add(obsid, mapid, score);
                     cout << "update assign matrix = \n " << rootvVec[idx].assignmentMatrix << endl;
-
-
                 }
-
-
             }
         }
 
@@ -346,14 +222,9 @@ void f() {
                     // update score
                     rootvVec[idx].add(obsid, mapid, score);
                     cout << "update assign matrix = \n" << rootvVec[idx].assignmentMatrix << endl;
-
-
                 }
-
-
             }
         }
-
 
         // if obsnum = 2
         // add origin point to it and compute matrix distance
@@ -375,29 +246,6 @@ void f() {
         cout << "origin distDiff = " << distDiff << "angleDiff = " << angleDiff << "score = " << score << endl;
 
         rootvVec[idx].assignScores += score;
-
-
-
-
-
-
-        // for each assignment matrix
-        // caculate it's count
-        // how to use diff
-
-
-        // combine all matrix to one matrix
-        // given accumulate score to each element
-        // get each pattern a score
-
-
-
-
-
-
-
-
-        // result in a full assign matrix
     }
 
 
@@ -407,7 +255,7 @@ void f() {
     scoreMatrix.setZero();
     for (int i = 0; i < rootvVec.size(); i++) {
 
-        cout << "each scorematrix = \n" << rootvVec[i].getScore() * rootvVec[i].assignmentMatrix << endl;
+        cout << i << " each scorematrix = \n" << rootvVec[i].getScore() * rootvVec[i].assignmentMatrix << endl;
         scoreMatrix += rootvVec[i].getScore() * rootvVec[i].assignmentMatrix;
     }
 
@@ -418,7 +266,7 @@ void f() {
     for (int i = 0; i < rootvVec.size(); i++) {
 
         double score = (scoreMatrix.array() * rootvVec[i].assignmentMatrix.array()).sum();
-        cout << "each matrix score = \n" << score << endl;
+        cout << i << " each matrix score = \n" << score << endl;
 
         if (score > bestScore) {
             bestScore = score;
@@ -427,131 +275,6 @@ void f() {
 
     }
     cout << "get best id " << bestId << "best score " << bestScore << endl;
+    return rootvVec[bestId].assignments;
 
-    // check assign matrix
-    // choose best
-
-
-
-
-    // given point set
-    // sort points set according to close wise order
-    // get point wise distance matrix
-    // select a element in matrix, get its location
-
-
-    // inthe other matrix find neareast neighbor
-    // element wise substraction and mask
-    // get index matrix
-    // get index
-
-    // if observed more than 2 point use angle matrix
-    // else no use
-
-    // observe_num == 2
-    // add origin point to compute angle matrix
-    // only contain 1 element in the angle matrix
-
-
-    // find matrix with least difference between angle matrix and distance matrix
-
-    // if observe_num >= 3
-    // to find next point , remember scan order
-    //
-
-
-    // how to end a loop
-    // get what result
-
-    //
-
-
-
-
-}
-
-
-Eigen::MatrixXf createMatrixFromVector(std::vector<float> vec, int row, int col) {
-    using namespace Eigen;
-//    if (row*col == vec.size()){
-//
-//    }
-    float *data = &(vec[0]);
-
-    // Eigen use colmajor as default order
-    //If the storage order is not specified, then Eigen defaults to storing the entry in column-major. This is also the case if one of the convenience typedefs (Matrix3f, ArrayXXd, etc.) is used.
-
-    Map<MatrixXf> m(data, row, col);
-    return m;
-}
-
-// predefine matri
-int main() {
-
-
-    string filename = "board.yaml";
-    Yaml::Node param_;
-    try {
-        param_ = Yaml::readFile(filename);
-
-    } catch (...) {
-
-        printf("read failed!!\n");
-    }
-    auto visibel_angle = param_["visibel_angle1"].As<double>(666);
-    auto visibel_range_ratio = param_["visibel_range_ratio"].As<double>();
-
-    f();
-    return 0;
-
-
-    using namespace Eigen;
-    using namespace std;
-    int r = 3, c = 3;
-    MatrixXf m(r, c);
-    m << 1, 2, 3, 4, 5, 6, 7, 8, 9;
-    MatrixXf n = m;
-
-    cout << "m=" << endl << m << endl;
-    m = (m + MatrixXf::Constant(3, 3, 1.2)) * 50;
-
-    VectorXf v(3);
-
-
-    v << 1, 0, 1;
-    cout << "m*v=" << endl << m * v << endl;
-
-    vector<float> d;
-    for (int i = 0; i < 9; i++)
-        d.push_back(i);
-    MatrixXf mmc = createMatrixFromVector(d, 3, 3);
-    cout << "mmc=" << endl << mmc;
-
-//    m.setOnes();
-    cout << "mask =\n" << (m.array() > m(0, 0));
-
-
-    ArrayXXf a(3, 2), b(2, 2);
-    a << -1, 2, 1, 2, 1.5, 1.5;
-    b << 5, 6, 7, 8;
-
-    cout << "a*b=\n" << a << endl;
-
-
-#if 0
-    cout<<"random generator\n"<<endl;
-    random_util::NormalGenerator rng(2,0.1);
-    vector<double> mean;
-    mean.push_back(1);
-    mean.push_back(1);
-    mean.push_back(1);
-    mean.push_back(1);
-
-    random_util::NormalVectorGenerator v_rng(mean,mean);
-    mean = v_rng.sample();
-    for(size_t i=0; i<10; ++i)
-        std::cout<<rng.sample()
-                 <<std::endl;
-
-#endif
 }

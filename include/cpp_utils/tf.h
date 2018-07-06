@@ -22,7 +22,7 @@ namespace tf_util {
         // TF_NAN_INPUT usually is caused by invalid quaternions being sent. You will need to debug the program sending the quaternions.
         // The Euclidean magnitude of a quaternion should be one. If numerical errors cause a quaternion magnitude other than one,
         // ROS will print warnings. To avoid these warnings, normalize the quaternion:
-        tf::Quaternion createQuaternionFromRPY(double roll, double pitch, double yaw){
+        inline tf::Quaternion createQuaternionFromRPY(double roll, double pitch, double yaw) {
 
             tf::Quaternion q = tf::createQuaternionFromRPY(roll, pitch, yaw);
             q.normalize();
@@ -33,16 +33,16 @@ namespace tf_util {
 
         }
 
-        void getRPYFromQuaternion(double &roll, double &pitch, double &yaw, tf::Quaternion q){
+    inline void getRPYFromQuaternion(double &roll, double &pitch, double &yaw, tf::Quaternion q) {
             tf::Matrix3x3 m(q);
             m.getRPY(roll, pitch, yaw);
         }
 
-        void getYawFromQuaternion(double &yaw, tf::Quaternion q){
+    inline void getYawFromQuaternion(double &yaw, tf::Quaternion q) {
             yaw = tf::getYaw(q);
         }
 
-        tf::Quaternion createQuaternionFromYaw(double yaw){
+    inline tf::Quaternion createQuaternionFromYaw(double yaw) {
             tf::Quaternion q = tf::createQuaternionFromYaw(yaw);
             q.normalize();
 
@@ -50,16 +50,16 @@ namespace tf_util {
             return q;
         }
 
-        tf::Vector3 createVector3FromXYZ(double x, double y, double z){
+    inline tf::Vector3 createVector3FromXYZ(double x, double y, double z) {
             return tf::Vector3(x,y,z);
         }
 
-        tf::Vector3 createVector3FromTranslation(geometry_msgs::Point translation){
+    inline tf::Vector3 createVector3FromTranslation(geometry_msgs::Point translation) {
             return tf::Vector3(translation.x, translation.y, translation.z);
         }
 
 
-        tf::Transform createTransformFromTranslationYaw(geometry_msgs::Point translation, double yaw){
+    inline tf::Transform createTransformFromTranslationYaw(geometry_msgs::Point translation, double yaw) {
             tf::Transform transform = tf::Transform(createQuaternionFromYaw(yaw), createVector3FromTranslation(translation));
             return transform;
         }
@@ -73,8 +73,9 @@ namespace tf_util {
 
 // lookup
 
-        bool lookupTransform(tf::TransformListener *tf_, string fix_frame, string target_frame, tf::Transform &transform,
-                             ros::Time time, double sleep_duration = 0.1, bool block = false) {
+    inline bool
+    lookupTransform(tf::TransformListener *tf_, string fix_frame, string target_frame, tf::Transform &transform,
+                    ros::Time time, double sleep_duration = 0.1, bool block = false) {
             tf::StampedTransform transform_stamped;
 
             ROS_INFO("lookupTransform start tf");
@@ -107,7 +108,7 @@ namespace tf_util {
         }
 
         // look up target_frame chane in the fix_frame
-        bool
+        inline bool
         lookupTranformChange(tf::TransformListener *tf_, ros::Time previous_time, ros::Time current_time, string fix_frame,
                              string target_frame, tf::Transform &transform, double sleep_duration = 0.1,
                              bool block = false) {
@@ -150,9 +151,10 @@ namespace tf_util {
         }
 
 //Transforms a geometry_msgs PointStamped message to frame target_frame, returns a new PointStamped message.
-        bool transformPoints(tf::TransformListener *tf_, string fix_frame, vector<geometry_msgs::PointStamped> &points,
-                             double sleep_duration = 0.1,
-                             bool block = false) {
+    inline bool
+    transformPoints(tf::TransformListener *tf_, string fix_frame, vector<geometry_msgs::PointStamped> &points,
+                    double sleep_duration = 0.1,
+                    bool block = false) {
 
             sensor_msgs::PointCloud pc, new_pc;
             size_t size = points.size();
@@ -202,9 +204,9 @@ namespace tf_util {
 
         }
 
-        bool transformPose(tf::TransformListener *tf_, string fix_frame, geometry_msgs::PoseStamped &pose,
-                           double sleep_duration = 0.1,
-                           bool block = false) {
+    inline bool transformPose(tf::TransformListener *tf_, string fix_frame, geometry_msgs::PoseStamped &pose,
+                              double sleep_duration = 0.1,
+                              bool block = false) {
 
             geometry_msgs::PoseStamped new_pose;
 
@@ -236,7 +238,7 @@ namespace tf_util {
 
         }
 
-        tf::Stamped<tf::Pose> createIdentStampedPose(string frame, ros::Time time = ros::Time::now()) {
+    inline tf::Stamped<tf::Pose> createIdentStampedPose(string frame, ros::Time time = ros::Time::now()) {
             tf::Stamped<tf::Pose> ident(tf::Transform(tf::createIdentityQuaternion(),
                                                       tf::Vector3(0, 0, 0)),
                                         time, frame);
@@ -244,8 +246,8 @@ namespace tf_util {
         }
 
 
-        bool getFramePose(tf::TransformListener *tf_, string fix_frame, string target_frame, ros::Time time,
-                          tf::Stamped<tf::Pose> &target_pose, double sleep_duration = 0.1, bool block = false) {
+    inline bool getFramePose(tf::TransformListener *tf_, string fix_frame, string target_frame, ros::Time time,
+                             tf::Stamped<tf::Pose> &target_pose, double sleep_duration = 0.1, bool block = false) {
 
             tf::Stamped<tf::Pose> ident = createIdentStampedPose(target_frame, time);
 
@@ -273,8 +275,9 @@ namespace tf_util {
 
 
         // publish
-        void sendTranform(tf::TransformBroadcaster *tfb_, tf::Transform transform, string fix_frame, string target_frame,
-                          double tolerance = 0.1) {
+        inline void
+        sendTranform(tf::TransformBroadcaster *tfb_, tf::Transform transform, string fix_frame, string target_frame,
+                     double tolerance = 0.1) {
 
             ros::Duration transform_tolerance;
             transform_tolerance.fromSec(tolerance);

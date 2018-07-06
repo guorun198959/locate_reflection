@@ -92,9 +92,8 @@ namespace rosnode {
         bool tranformPose(geometry_msgs::PoseStamped &pose, string fix_frame);
     };
 
-
-    // *****
-    Listener::Listener(ros::NodeHandle nh, ros::NodeHandle nh_private) {
+// *****
+    inline    Listener::Listener(ros::NodeHandle nh, ros::NodeHandle nh_private) {
         updated_ = false;
         tf_ = new tf::TransformListener();
         tfb_ = new tf::TransformBroadcaster();
@@ -102,14 +101,13 @@ namespace rosnode {
     }
 
 
-
-    Listener::~Listener() {
+    inline    Listener::~Listener() {
         delete tf_;
         delete tfb_;
 
     }
 
-    bool Listener::topicExists(string topic) {
+    inline bool Listener::topicExists(string topic) {
         if (container::keyExists<string, std::shared_ptr<ros::CallbackQueue>>(callbackqueue_, topic)) {
             return true;
         } else
@@ -188,7 +186,7 @@ namespace rosnode {
 
     }
 
-    bool Listener::getOneMessage(string topic, double wait) {
+    inline bool Listener::getOneMessage(string topic, double wait) {
         updated_ = false;
 
         if (!topicExists(topic)) {
@@ -246,11 +244,11 @@ namespace rosnode {
         //nomal filter with private varibel
 #if 0
         /*
-        define topic_sub_ topic_filter_ as member varibel
-        */
-        topic_sub_ = new message_filters::Subscriber<T>(n, topic, 1);
-        topic_filter_ =  new tf::MessageFilter<T>(*topic_sub_,*tf_,target_frame,5);
-        topic_filter_->registerCallback(boost::bind(&Listener::bindcallback<T>,this, _1, data_ptr));
+    define topic_sub_ topic_filter_ as member varibel
+    */
+    topic_sub_ = new message_filters::Subscriber<T>(n, topic, 1);
+    topic_filter_ =  new tf::MessageFilter<T>(*topic_sub_,*tf_,target_frame,5);
+    topic_filter_->registerCallback(boost::bind(&Listener::bindcallback<T>,this, _1, data_ptr));
 #endif
 
         // with shared_ptr
@@ -269,8 +267,8 @@ namespace rosnode {
 
     }
 
-    bool Listener::getTransform(string fix_frame, string target_frame, tf::Transform &transform, ros::Time time,
-                                double sleep_duration, bool block) {
+    inline bool Listener::getTransform(string fix_frame, string target_frame, tf::Transform &transform, ros::Time time,
+                                       double sleep_duration, bool block) {
         ROS_INFO("Listener start tf");
 
         bool successful = tf_util::lookupTransform(tf_, fix_frame, target_frame, transform, time, sleep_duration,
@@ -283,18 +281,19 @@ namespace rosnode {
         return successful;
     }
 
-    void Listener::sendTransform(string fix_frame, string target_frame, tf::Transform &transform, double tolerance) {
+    inline void
+    Listener::sendTransform(string fix_frame, string target_frame, tf::Transform &transform, double tolerance) {
         tf_util::sendTranform(tfb_, transform, fix_frame, target_frame, tolerance);
     }
 
 
     //tranformPoint
-    bool Listener::tranformPoints(vector<geometry_msgs::PointStamped> &points, string fix_frame) {
+    inline bool Listener::tranformPoints(vector<geometry_msgs::PointStamped> &points, string fix_frame) {
         return tf_util::transformPoints(tf_, fix_frame, points, 0.1, true);
     }
 
     //transformpose
-    bool Listener::tranformPose(geometry_msgs::PoseStamped &pose, string fix_frame) {
+    inline bool Listener::tranformPose(geometry_msgs::PoseStamped &pose, string fix_frame) {
         return tf_util::transformPose(tf_, fix_frame, pose, 0.1, true);
     }
 

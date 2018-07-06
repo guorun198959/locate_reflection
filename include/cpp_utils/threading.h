@@ -34,17 +34,18 @@ namespace threading_util {
         // while loop rate
 
 
+        // singnal contation shared data and excution command
         struct signal {
-            string chat_;
             bool run_;
+            bool pause_;
             bool exit_;
             std::shared_ptr<T> data_;
 
 
-            explicit signal(bool run, string chat = "test") {
+            explicit signal(bool run) {
                 run_ = run;
-                chat_ = chat;
                 exit_ = false;
+                pause_ = false;
             }
 
             void setData(std::shared_ptr<T> data) {
@@ -67,6 +68,7 @@ namespace threading_util {
                 sleep_time = durationMsec_;
             else
                 sleep_time = 100;
+            // sleep in a thread
             while (!shared_signal_.get()->run_)
                 std::this_thread::sleep_for(std::chrono::milliseconds(sleep_time));
 
@@ -86,7 +88,7 @@ namespace threading_util {
                 if (shared_signal_.get()->exit_)
                     return;
                 wait();
-                std::cout << "BaseClass========" << shared_signal_.get()->chat_ << std::endl;
+                std::cout << "BaseClass========" << std::endl;
                 sleep();
 
 
@@ -99,6 +101,7 @@ namespace threading_util {
         std::shared_ptr<signal> shared_signal_;
 
 
+        // constructor
         explicit Task(int durationMsec = 100) {
             durationMsec_ = durationMsec;
             shared_signal_ = std::make_shared<signal>(false);
@@ -115,20 +118,48 @@ namespace threading_util {
         };
 
         void start() {
-            if (!shared_signal_.get()->run_)
+            if (!shared_signal_.get()->run_) {
                 shared_signal_.get()->run_ = true;
+
+            }
+            if (shared_signal_.get()->run_) {
+
+                shared_signal_.get()->pause_ = false;
+            }
             if (shared_signal_.get()->exit_)
                 std::cout << "task is exited, cannot start!";
+        }
+
+        void pause() {
+            if (shared_signal_.get()->run_)
+                shared_signal_.get()->pause_ = true;
+            if (shared_signal_.get()->exit_)
+                std::cout << "task is exited, cannot pause!";
         }
 
         void exit() {
             shared_signal_.get()->exit_ = true;
         }
 
-        void chat(string msg) {
-            shared_signal_.get()->chat_ = msg;
+        bool isRun() {
+            return shared_signal_.get()->run_;
+        }
+
+        bool isExit() {
+            return shared_signal_.get()->exit_;
 
         }
+
+        bool isPause() {
+            return shared_signal_.get()->pause_;
+
+        }
+
+        T getData() {
+            return shared_signal_.get()->getData();
+        }
+
+
 
 
     };
@@ -178,8 +209,7 @@ namespace threading_util {
 
 
                 // do something
-                std::cout << "ChildClass=========" << this->shared_signal_.get()->chat_;
-                std::cout << this->shared_signal_.get()->getData().cmd.data;
+                std::cout << "ChildClass=========";
 
                 // sleep
                 this->sleep();
@@ -220,6 +250,46 @@ namespace threading_util {
             }
         }
     };
+
+    template<class T>
+    class ThreadTfPub : public Task<T> {
+    public:
+
+        tf::TransformBroadcaster *tfb_;
+
+        explicit ThreadTfPub(int durationMsec, std::shared_ptr<T> data, tf::TransformBroadcaster *tfb) : Task<T>(
+                durationMsec), tfb_(tfb) {
+            if (durationMsec < 0) {
+//                sprintf("durationMsec = %d ",durationMsec);
+                exit(0);
+            }
+
+            this->shared_signal_->setData(data);
+
+
+        }
+
+        void doSomething() {
+            this->wait();
+            ros::Rate r(1000.0 / this->durationMsec_);
+            while (ros::ok() && !this->isExit()) {
+                if (this->isPause()) {
+                    r.sleep();
+
+                    continue;
+                }
+                T msg = this->getData();
+
+                tfb_->sendTransform(msg);
+
+                r.sleep();
+
+            }
+
+        }
+    };
+
+
 
 }
 
