@@ -302,7 +302,7 @@ namespace threading_util {
         /* add target function
          * */
         template<class T>
-        void setTarget(T target, int data);
+        void setTarget(T target, tf::TransformBroadcaster *tfb);
 
         /** Destructor
          *
@@ -317,10 +317,19 @@ namespace threading_util {
          * The thread will finish when this function returns.
          */
         template<class T>
-        void threadMain(T target, int data);
+        void threadMain(T target, tf::TransformBroadcaster *tfb);
 
+    public:
+        void start() {
+            run_ = true;
+        }
+
+        void pause() {
+            run_ = false;
+        }
     private: // data
         boost::thread internalThread_;
+        bool run_;
 
     }; // class
 
@@ -330,6 +339,7 @@ namespace threading_util {
     //-----------------------------------------------------------------------------
     inline    ThreadClass::ThreadClass() {
 
+        run_ = false;
 
     } // Constructor
 
@@ -342,18 +352,22 @@ namespace threading_util {
 
     //---------------------------------------------------------------------
     template<class T>
-    void ThreadClass::setTarget(T target, int data) {
+    void ThreadClass::setTarget(T target, tf::TransformBroadcaster *tfb) {
         // this should always be the last line in the constructor
-        internalThread_ = boost::thread(boost::bind(&ThreadClass::threadMain<T>, this, target, data));
+        internalThread_ = boost::thread(boost::bind(&ThreadClass::threadMain<T>, this, target, tfb));
     }
 
 //-----------------------------------------------------------------------------
     template<class T>
-    inline void ThreadClass::threadMain(T target, int data) {
+    inline void ThreadClass::threadMain(T target, tf::TransformBroadcaster *tfb) {
         try {
             /* add whatever code you want the thread to execute here. */
             while (1) {
-                cout << "run once!!!" << target.get()->x << "data" << data << endl;
+                if (!run_) {
+                    continue;
+                }
+                cout << "run once!!!" << endl;
+                tfb->sendTransform(*target);
 
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
 

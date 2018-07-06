@@ -46,15 +46,7 @@ int main(int argc, char **argv) {
     ros::Rate r(10);
 
     threading_util::ThreadClass threadClass;
-    std::shared_ptr<Position> data = std::make_shared<Position>(2, 1, 1);
-    threadClass.setTarget(data, 666);
-    for (int i = 0; i < 20; i++) {
-        data.get()->x = i;
-        cout << "main thread" << i << endl;
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-    }
-    cout << "==== done " << endl;
 
 #if 0
     while (ros::ok()) {
@@ -67,7 +59,7 @@ int main(int argc, char **argv) {
 
 
 #endif
-#if 0
+#if 1
     // create a threading
     threading_util::Threading t;
     ros::Duration transform_tolerance;
@@ -84,18 +76,20 @@ int main(int argc, char **argv) {
                                           "map", "odom");
     std::shared_ptr<tf::StampedTransform> data = std::make_shared<tf::StampedTransform>(transformstamped);
     data.get()->setIdentity();
-    threading_util::ThreadTfPub<tf::StampedTransform> threadTfPub(10,data,tfb);
-    t.createThread(threadTfPub);
+
+    threadClass.setTarget(data, tfb);
+
 
     // test matcher
-    ros::Rate r(10);
-    threadTfPub.start();
+//    ros::Rate r(10);
 
     int i=1;
     geometry_msgs::Pose p;
     p.position.x = i;
     p.orientation.w =1;
-    while (ros::ok()){
+    while (ros::ok() && i < 32) {
+        if (i == 10)
+            threadClass.start();
         i++;
         p.position.x ++;
         tf::poseMsgToTF(p,*data);
@@ -103,14 +97,7 @@ int main(int argc, char **argv) {
 //        finder.detectBoard();
         data.get()->stamp_ = ros::Time::now();
         r.sleep();
-        if (i==20){
-            threadTfPub.pause();
-        }
-        if(i==30)
-            threadTfPub.start();
 
-        if (i==40)
-            threadTfPub.exit();
     }
 
 
