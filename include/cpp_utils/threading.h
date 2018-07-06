@@ -10,6 +10,7 @@
 #include <iostream>
 
 using std::cout;
+using std::endl;
 namespace threading_util {
 
     // create thread
@@ -289,6 +290,90 @@ namespace threading_util {
         }
     };
 
+
+    class ThreadClass {
+    public: // methods
+        /** Constructor
+         *
+         * starts the internal thread running.
+         */
+        ThreadClass();
+
+        /* add target function
+         * */
+        template<class T>
+        void setTarget(T target, int data);
+
+        /** Destructor
+         *
+         * Blocks until the thread has finished executing, if it hasn't
+         * finished already.
+         */
+        ~ThreadClass();
+
+    private: // methods
+        /** This is the function that the thread executes.
+         *
+         * The thread will finish when this function returns.
+         */
+        template<class T>
+        void threadMain(T target, int data);
+
+    private: // data
+        boost::thread internalThread_;
+
+    }; // class
+
+//*****************************************************************************
+
+
+    //-----------------------------------------------------------------------------
+    inline    ThreadClass::ThreadClass() {
+
+
+    } // Constructor
+
+    inline    ThreadClass::~ThreadClass() {
+        internalThread_.interrupt();
+        // internalThread_.join(); // make damn sure that the internal thread is gone
+        // before we destroy the class data.
+    } // Destructor
+
+
+    //---------------------------------------------------------------------
+    template<class T>
+    void ThreadClass::setTarget(T target, int data) {
+        // this should always be the last line in the constructor
+        internalThread_ = boost::thread(boost::bind(&ThreadClass::threadMain<T>, this, target, data));
+    }
+
+//-----------------------------------------------------------------------------
+    template<class T>
+    inline void ThreadClass::threadMain(T target, int data) {
+        try {
+            /* add whatever code you want the thread to execute here. */
+            while (1) {
+                cout << "run once!!!" << target.get()->x << "data" << data << endl;
+
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+            }
+
+        }
+        catch (boost::thread_interrupted &interruption) {
+            // thread was interrupted, this is expected.
+            cout << "******************thread was interrupted, this is expected." << endl;
+
+        }
+        catch (std::exception &e) {
+            // an unhandled exception reached this point, this constitutes an error
+            cout << "****************** an unhandled exception reached this point, this constitutes an error" << endl;
+
+        }
+
+    } // threadMain
+
+//-----------------------------------------------------------------------------
 
 
 }

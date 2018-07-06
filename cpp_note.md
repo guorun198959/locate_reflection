@@ -106,9 +106,10 @@ Shortly, there is no reason to pass by value, unless the goal is to share owners
 10. try and catch
 
 
+
     try {
-
+    
     }catch (...){
-
+    
         printf("catch any exception!!\n");
     }
