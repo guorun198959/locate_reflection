@@ -1,6 +1,7 @@
 1.boost::shared_ptr
 https://stackoverflow.com/questions/20895648/difference-in-make-shared-and-normal-shared-ptr-in-c
 https://stackoverflow.com/questions/6876751/differences-between-unique-ptr-and-shared-ptr
+    
     // use make_shared whenever you can (i.e. when you don't need a custom deleter
     boost::shared_ptr<T> data_ptr(boost::make_shared<T>());
     
@@ -59,6 +60,7 @@ https://stackoverflow.com/questions/6876751/differences-between-unique-ptr-and-s
 
 4. map check key exists
 
+
     if ( m.find("f") == m.end() ) {
       // not found
     } else {
@@ -95,7 +97,7 @@ Shortly, there is no reason to pass by value, unless the goal is to share owners
 9. copy parameter file in cmake;
 
 
-    # add configure file
+    
     configure_file (
             "${PROJECT_SOURCE_DIR}/launch/board.yaml"
             "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/board.yaml"
