@@ -291,6 +291,16 @@ namespace threading_util {
     };
 
 
+    // thread runtime signal
+    struct Cmd {
+        bool run_;
+
+        Cmd(bool t) {
+            run_ = t;
+        }
+    };
+
+
     class ThreadClass {
     public: // methods
         /** Constructor
@@ -298,6 +308,8 @@ namespace threading_util {
          * starts the internal thread running.
          */
         ThreadClass();
+
+        std::shared_ptr<Cmd> cmd_;
 
         /* add target function
          * */
@@ -323,15 +335,14 @@ namespace threading_util {
 
     public:
         void start() {
-            run_ = true;
+            cmd_.get()->run_ = true;
         }
 
         void pause() {
-            run_ = false;
+            cmd_.get()->run_ = false;
         }
     private: // data
         boost::thread internalThread_;
-        bool run_;
 
     }; // class
 
@@ -340,8 +351,8 @@ namespace threading_util {
 
     //-----------------------------------------------------------------------------
     inline    ThreadClass::ThreadClass() {
+        cmd_ = std::make_shared<Cmd>(false);
 
-        run_ = false;
 
     } // Constructor
 
@@ -362,7 +373,9 @@ namespace threading_util {
     template<class T, class F>
     void ThreadClass::setTarget(T target, F arg) {
         // this should always be the last line in the constructor
-        internalThread_ = boost::thread(boost::bind<void>(target, arg));
+        // send data and cmd signal to thread
+
+        internalThread_ = boost::thread(boost::bind<void>(target, arg, cmd_));
     }
 
 //-----------------------------------------------------------------------------
@@ -372,9 +385,7 @@ namespace threading_util {
         try {
             /* add whatever code you want the thread to execute here. */
             while (1) {
-                if (!run_) {
-                    continue;
-                }
+
                 cout << "run once!!!" << endl;
                 tfb->sendTransform(*target);
 
@@ -401,17 +412,29 @@ namespace threading_util {
 
 
     struct Func_tfb {
+
         tf::TransformBroadcaster *tfb_;
 
-        Func_tfb(tf::TransformBroadcaster *tfb) : tfb_(tfb) {};
+        Func_tfb() {
+        };
 
-        template<class T>
-        void operator()(T data) {
+        void set(tf::TransformBroadcaster *tfb) {
+            tfb_ = tfb;
+        }
+
+        template<class T, class C>
+        void operator()(T data, C cmd) {
             try {
                 /* add whatever code you want the thread to execute here. */
                 while (1) {
+                    if (!cmd.get()->run_) {
+                        cout << "continue!!" << endl;
+                        std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-                    cout << "pub" << data.get()->stamp_ << endl;
+                        continue;
+                    }
+
+                    cout << "pub ====" << data.get()->stamp_ << endl;
 
                     tfb_->sendTransform(*data);
                     std::this_thread::sleep_for(std::chrono::milliseconds(100));

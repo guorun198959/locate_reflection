@@ -52,13 +52,19 @@ BoardFinder::BoardFinder(ros::NodeHandle nh, ros::NodeHandle nh_private) :
     patternMatcher = PatternMatcher();
 
 //
-//    threading_ = threading_util::Threading<threading_util::ThreadTfPub<tf::StampedTransform>>();
-//    tf::TransformBroadcaster * tfb  = new tf::TransformBroadcaster();
-//    tf::StampedTransform transformstamped;
-//    std::shared_ptr<tf::StampedTransform> data = std::make_shared<tf::StampedTransform>(transformstamped);
 
-//    threading_util::ThreadTfPub<tf::StampedTransform> threadTfPub_(10,data,tfb);
-//    threading_.createThread(threadTfPub_);
+
+    // threading
+//    threadClass_ = threading_util::ThreadClass();
+    tfb_ = new tf::TransformBroadcaster();
+    tfThread_.set(tfb_);
+    mapToodomtfPtr_ = std::make_shared<tf::StampedTransform>();
+    mapToodomtfPtr_.get()->setIdentity();
+    threadClass_.setTarget(tfThread_, mapToodomtfPtr_);
+
+    // start running in any function
+//    threadClass_.start();
+
 
 
 
@@ -446,7 +452,19 @@ void BoardFinder::updateMapOdomTf(tf::Transform laserPose, ros::Time time) {
 
     tf::Transform mapTOodomTf = laserPose * baseLaserTf_.inverse() * odomTobase.inverse();
 
-    l.sendTransform("map", "odom", mapTOodomTf, 0.1);
+
+    ros::Time tn = ros::Time::now();
+    ros::Duration transform_tolerance;
+    transform_tolerance.fromSec(0.1);
+    ros::Time transform_expiration = (tn + transform_tolerance);
+
+    tf::StampedTransform mapTOodomTfstamped(mapTOodomTf,
+                                            transform_expiration,
+                                            "map", "odom");
+    // update map_odom tf
+    std::swap(*mapToodomtfPtr_, mapTOodomTfstamped);
+
+//    l.sendTransform("map", "odom", mapTOodomTf, 0.1);
 
 
 }

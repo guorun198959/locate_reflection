@@ -49,18 +49,18 @@ int main(int argc, char **argv) {
     threading_util::ThreadClass threadClass;
 
 
-#if 0
+#if 1
     while (ros::ok()) {
         // detect ok;
 //        finder.detectBoard();
         // find location
-        finder.findLocation();
+//        finder.findLocation();
         r.sleep();
     }
 
 
 #endif
-#if 1
+#if 0
     // create a threading
     threading_util::Threading t;
     ros::Duration transform_tolerance;
@@ -80,7 +80,15 @@ int main(int argc, char **argv) {
 
 //    threadClass.setTarget(data, tfb);
 
-    threading_util::Func_tfb ff(tfb);
+    threading_util::Func_tfb ff;
+    ff.set(tfb);
+    std::shared_ptr<threading_util::Func_tfb> fff = std::make_shared<threading_util::Func_tfb>(ff);
+
+
+#if 0
+
+
+#endif
     threadClass.setTarget(ff, data);
 
     // test matcher
@@ -91,8 +99,10 @@ int main(int argc, char **argv) {
     p.position.x = i;
     p.orientation.w =1;
     while (ros::ok() && i < 32) {
-        if (i == 10)
+        if (i>20)
             threadClass.start();
+
+
         i++;
         p.position.x ++;
         tf::poseMsgToTF(p,*data);
@@ -100,6 +110,7 @@ int main(int argc, char **argv) {
 //        finder.detectBoard();
         data.get()->stamp_ = ros::Time::now();
         r.sleep();
+        cout<<"ddddd"<<endl;
 
     }
 
