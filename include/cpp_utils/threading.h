@@ -415,7 +415,10 @@ namespace threading_util {
 
         tf::TransformBroadcaster *tfb_;
 
-        Func_tfb() {
+        int sleep_;
+
+        Func_tfb(int sleep = 100) {
+            sleep_ = 100;
         };
 
         void set(tf::TransformBroadcaster *tfb) {
@@ -428,16 +431,23 @@ namespace threading_util {
                 /* add whatever code you want the thread to execute here. */
                 while (1) {
                     if (!cmd.get()->run_) {
-                        cout << "continue!!" << endl;
-                        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+//                        cout << "continue!!" << endl;
+                        std::this_thread::sleep_for(std::chrono::milliseconds(sleep_));
 
+                        cout << "ffffff====" << endl;
                         continue;
                     }
 
                     cout << "pub ====" << data.get()->stamp_ << endl;
+                    // update time in thread
+                    ros::Time tn = ros::Time::now();
+                    ros::Duration transform_tolerance;
+                    transform_tolerance.fromSec(0.1);
+                    ros::Time transform_expiration = (tn + transform_tolerance);
+                    data.get()->stamp_ = transform_expiration;
 
                     tfb_->sendTransform(*data);
-                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                    std::this_thread::sleep_for(std::chrono::milliseconds(sleep_));
 
                 }
 

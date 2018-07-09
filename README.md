@@ -23,6 +23,12 @@ sensor_msgs geometry_msgs nav_msgs tf roscpp
 
 
 
-// used github code
+- used github code
+
+- yaml
 https://github.com/jimmiebergmann/mini-yaml.git
+- kdtree
 https://github.com/gishi523/kd-tree
+- GRANSAC
+https://github.com/drsrinathsridhar/GRANSAC.git
+http://durant35.github.io/2017/07/21/Algorithms_LeastSquaresLineFitting/

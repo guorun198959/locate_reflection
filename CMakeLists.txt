@@ -37,6 +37,29 @@ find_package(
 find_package(Eigen REQUIRED)
 
 
+IF (MSVC)
+    ADD_DEFINITIONS(-DNOMINMAX)
+    # Another MSVC quirk. http://stackoverflow.com/questions/6832666/lnk2019-when-including-asio-headers-solution-generated-with-cmake
+    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /EHsc /MP") # For multi-threaded compilation on MSVC
+ELSE ()
+    IF (APPLE)
+        SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++") # C++11 support on Apple clang
+    ELSE ()
+        SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")# C++11 support on GCC
+    ENDIF ()
+ENDIF ()
+
+FIND_PACKAGE(OpenCV REQUIRED)
+
+# OpenMP
+FIND_PACKAGE(OpenMP)
+IF (OPENMP_FOUND)
+    SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
+    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
+    MESSAGE(STATUS "Found OpenMP")
+ENDIF ()
+
+
 #define srv and msg
 add_service_files(FILES
         myservice.srv
@@ -63,6 +86,7 @@ include_directories(
         include
         src
         ${catkin_INCLUDE_DIRS}
+        ${OpenCV_INCLUDE_DIRS}
         ${EIGEN_INCLUDE_DIRS})
 
 
@@ -77,8 +101,9 @@ configure_file(
 
 #### test node
 
-add_executable(${PROJECT_NAME}_node src/main.cpp include/yaml/Yaml.cpp src/boardFinder.cpp src/patternMatcher.cpp)
-target_link_libraries(${PROJECT_NAME}_node ${catkin_LIBRARIES})
+set(LIB_SRC include/yaml/Yaml.cpp src/boardFinder.cpp src/patternMatcher.cpp include/GRANSAC/LineFitting.cpp)
+add_executable(${PROJECT_NAME}_node src/main.cpp ${LIB_SRC})
+target_link_libraries(${PROJECT_NAME}_node ${catkin_LIBRARIES} ${OpenCV_LIBS})
 
 add_executable(matrix src/start_up.cpp include/yaml/Yaml.cpp)
 target_link_libraries(matrix)

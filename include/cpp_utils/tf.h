@@ -210,7 +210,6 @@ namespace tf_util {
 
             geometry_msgs::PoseStamped new_pose;
 
-            ROS_INFO("lookupTransform start tf");
 
             while (ros::ok()) {
                 try {

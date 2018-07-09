@@ -9,6 +9,7 @@
 #include <geometry_msgs/Pose.h>
 #include <Eigen/Dense>
 #include <Eigen/Eigenvalues>
+#include <cpp_utils/svdlinefitting.h>
 // for debug
 
 template<class Vector3>
@@ -38,23 +39,28 @@ int main(int argc, char **argv) {
     ros::NodeHandle nh;
     ros::NodeHandle nh_private("~");
 
-    tf::TransformBroadcaster *tfb = new tf::TransformBroadcaster();
+
+    ros::Rate(1).sleep();
 
 
-    // construct a board Finder
-    BoardFinder finder(nh, nh_private);
+
+
 
     ros::Rate r(10);
 
-    threading_util::ThreadClass threadClass;
-
-
 #if 1
+    // construct a board Finder
+    BoardFinder finder(nh, nh_private);
+
+    ros::Rate(1).sleep();
+
     while (ros::ok()) {
-        // detect ok;
+        // detect board; ok
 //        finder.detectBoard();
+        // read xml board:ok
+//        finder.getBoardPosition();
         // find location
-//        finder.findLocation();
+        finder.findLocation();
         r.sleep();
     }
 
@@ -62,6 +68,10 @@ int main(int argc, char **argv) {
 #endif
 #if 0
     // create a threading
+        tf::TransformBroadcaster *tfb = new tf::TransformBroadcaster();
+
+        threading_util::ThreadClass threadClass;
+
     threading_util::Threading t;
     ros::Duration transform_tolerance;
     transform_tolerance.fromSec(0.1);
@@ -74,7 +84,7 @@ int main(int argc, char **argv) {
 //            ROS_INFO("update odom by threads");
     tf::StampedTransform transformstamped(transform,
                                           transform_expiration,
-                                          "map", "odom");
+                                          "map", "odom1");
     std::shared_ptr<tf::StampedTransform> data = std::make_shared<tf::StampedTransform>(transformstamped);
     data.get()->setIdentity();
 
@@ -85,10 +95,7 @@ int main(int argc, char **argv) {
     std::shared_ptr<threading_util::Func_tfb> fff = std::make_shared<threading_util::Func_tfb>(ff);
 
 
-#if 0
 
-
-#endif
     threadClass.setTarget(ff, data);
 
     // test matcher
@@ -99,16 +106,18 @@ int main(int argc, char **argv) {
     p.position.x = i;
     p.orientation.w =1;
     while (ros::ok() && i < 32) {
-        if (i>20)
+        if (i>5)
             threadClass.start();
 
 
         i++;
         p.position.x ++;
-        tf::poseMsgToTF(p,*data);
+        tf::StampedTransform stampedTransform;
+        stampedTransform.stamp_ = ros::Time::now();
+        tf::poseMsgToTF(p,stampedTransform);
+        std::swap(*data,stampedTransform );
         // ok
 //        finder.detectBoard();
-        data.get()->stamp_ = ros::Time::now();
         r.sleep();
         cout<<"ddddd"<<endl;
 

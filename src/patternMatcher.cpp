@@ -25,6 +25,7 @@ void PatternMatcher::initParams() {
     distRatio_ = param_["distRatio"].As<double>(2);
     angleRatio_ = param_["angleRatio"].As<double>(6);
     matchScore_ = param_["matchScore"].As<double>(1.1);
+    finalScore_ = param_["finalScore"].As<double>(1.1);
 }
 
 PatternMatcher::PatternMatcher() {
@@ -274,7 +275,16 @@ vector<tuple<int, int> > PatternMatcher::match(vector<Position> &obsPos, vector<
         }
 
     }
+
+    // check score ;
+    //
     cout << "get best id " << bestId << "best score " << bestScore << endl;
-    return rootvVec[bestId].assignments;
+    if (bestScore > finalScore_) {
+        return rootvVec[bestId].assignments;
+
+    } else {
+        return vector<tuple<int, int> >();
+
+    }
 
 }

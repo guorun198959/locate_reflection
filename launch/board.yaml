@@ -1,7 +1,8 @@
+version : 0.1
 visibel_angle: 1.23
 visibel_range_ratio: 0.8
-intensity_thresh: 900
-neighbor_thresh: 0.05
+intensity_thresh: 800
+neighbor_thresh: 20
 length_thresh: 0.02
 radius: 0.3
 distScoreBase: 0.1
@@ -9,13 +10,17 @@ angleScoreBase: 0.1
 distRatio: 2
 angleRatio: 6
 matchScore: 1.0
+finalScore: 1.5
 board_position:
   - x: -21.5
     y: 15.9
     yaw: -1.528
+    length: 0.5
   - x: -20.9
     y: 4.5
     yaw: 1.38
+    length: 0.5
   - x: -14.9
     y: 4.7
     yaw: 1.38
+    length: 0.5
