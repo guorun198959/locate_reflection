@@ -341,6 +341,10 @@ namespace threading_util {
         void pause() {
             cmd_.get()->run_ = false;
         }
+
+        bool isRunning() {
+            return cmd_.get()->run_;
+        }
     private: // data
         boost::thread internalThread_;
 
@@ -417,8 +421,8 @@ namespace threading_util {
 
         int sleep_;
 
-        Func_tfb(int sleep = 100) {
-            sleep_ = 100;
+        Func_tfb(int sleep = 10) {
+            sleep_ = 10;
         };
 
         void set(tf::TransformBroadcaster *tfb) {
@@ -433,20 +437,21 @@ namespace threading_util {
                     if (!cmd.get()->run_) {
 //                        cout << "continue!!" << endl;
                         std::this_thread::sleep_for(std::chrono::milliseconds(sleep_));
-
-                        cout << "ffffff====" << endl;
                         continue;
                     }
-
-                    cout << "pub ====" << data.get()->stamp_ << endl;
+#if 1
+//                    cout << "pub ====" << data.get()->stamp_ << endl;
                     // update time in thread
                     ros::Time tn = ros::Time::now();
                     ros::Duration transform_tolerance;
                     transform_tolerance.fromSec(0.1);
                     ros::Time transform_expiration = (tn + transform_tolerance);
-                    data.get()->stamp_ = transform_expiration;
 
+                    // read shared data in thread . make it thread safe
+                    tf::StampedTransform msg = *data;
+                    msg.stamp_ = transform_expiration;
                     tfb_->sendTransform(*data);
+#endif
                     std::this_thread::sleep_for(std::chrono::milliseconds(sleep_));
 
                 }

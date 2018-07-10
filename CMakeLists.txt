@@ -32,7 +32,7 @@ endif()
 
 find_package(
         catkin REQUIRED COMPONENTS cmake_modules geometry_msgs sensor_msgs tf nav_msgs
-        roscpp amcl
+        roscpp
 )
 find_package(Eigen REQUIRED)
 

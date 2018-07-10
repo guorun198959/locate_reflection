@@ -5,7 +5,6 @@
 #include "locate_reflection/boardFinder.h"
 #include <locate_reflection/patternMatcher.h>
 #include <opencv2/opencv.hpp>
-#include <GRANSAC/LineFitting.h>
 #include <cpp_utils/svdlinefitting.h>
 
 #define debug_pub true
@@ -13,29 +12,34 @@
 BoardFinder::BoardFinder(ros::NodeHandle nh, ros::NodeHandle nh_private) :
         nh_(nh), nh_private_(nh_private), l(nh, nh_private) {
 
+    // **** parameter
+    // topic
     scan_topic_ = "scan";
     odomtf_topic_ = "amcl_tf";
+    // frame
+    odom_frame_id_ = "odom";
+    base_frame_id_ = "base_link";
+    laser_frame_id_ = "laser";
+    fixed_frame_id_ = "map";
 
+    // reset state
     baseLaserTf_.setIdentity();
     mapOdomTf_.setIdentity();
-
+    odomBaseTf_.setIdentity();
+    getFirstmapOdomTf_ = false;
 
     // create scan sub
     auto res = l.createSubcriber<sensor_msgs::LaserScan>(scan_topic_, 10);
-
     // shared scan data
     laser_data_ = std::get<0>(res);
 
-
     // create tf sub
-    auto res2 = l.createSubcriber<geometry_msgs::Pose>(odomtf_topic_, 1);
-
+    auto res2 = l.createSubcriber<geometry_msgs::PoseWithCovarianceStamped>(odomtf_topic_, 1);
     // shared tf data
     mapOdom_data_ = std::get<0>(res2);
-    if (!getMapOdomTf()) {
-        ROS_ERROR("not received %s;exit", odomtf_topic_.c_str());
-        exit(0);
-    }
+
+    //  thread shared data
+    mapToodomtfPtr_ = std::make_shared<tf::StampedTransform>();
 
     // read xml
     string filename = "board.yaml";
@@ -47,11 +51,7 @@ BoardFinder::BoardFinder(ros::NodeHandle nh, ros::NodeHandle nh_private) :
         exit(0);
     }
 
-
-
-
-    // publish point  for rviz
-
+    // publish point  for rviz, calibration
     boardPub = nh_.advertise<geometry_msgs::PoseArray>("detectboard", 2);
     pointPub = nh_.advertise<geometry_msgs::PoseArray>("lightpoint", 2);
     markerPub = nh_.advertise<geometry_msgs::PoseArray>("board", 2);
@@ -60,45 +60,20 @@ BoardFinder::BoardFinder(ros::NodeHandle nh, ros::NodeHandle nh_private) :
     // point pattern matcher
     patternMatcher = PatternMatcher();
 
-//
-
-
     // threading
-//    threadClass_ = threading_util::ThreadClass();
     tfb_ = new tf::TransformBroadcaster();
     tfThread_.set(tfb_);
-
-    // create shared data
-    ros::Duration transform_tolerance;
-    transform_tolerance.fromSec(0.1);
-
-    tf::Transform transform;
-    transform.setIdentity();
-    ros::Time tn = ros::Time::now();
-    ros::Time transform_expiration = (tn +
-                                      transform_tolerance);
-
-//            ROS_INFO("update odom by threads");
-    tf::StampedTransform transformstamped(transform,
-                                          transform_expiration,
-                                          "map", "odom");
-
-
-
-    mapToodomtfPtr_ = std::make_shared<tf::StampedTransform>();
-
-    std::swap(*mapToodomtfPtr_, transformstamped);
-#if 0
     threadClass_.setTarget(tfThread_, mapToodomtfPtr_);
-#endif
-    cout << " count = " << mapToodomtfPtr_.use_count() << endl;
 
     // start running in any function
-//    threadClass_.start();
+    // threadClass_.start();
 
-
-
-
+    // get mapodomtf as soon as posiible
+    // this topic may just publish once
+    if (!getMapOdomTf(5)) {
+        ROS_ERROR("not received %s;exit", odomtf_topic_.c_str());
+        exit(0);
+    }
 
 }
 
@@ -117,39 +92,49 @@ bool BoardFinder::updateSensor() {
             bear_[i] = laser_data_.get()->angle_min + i * laser_data_.get()->angle_increment;
         }
     }
+    getLaserPose();
+
     return getmsg;
 }
 
 // get tf data
 // if no data return false;
-bool BoardFinder::getMapOdomTf() {
+bool BoardFinder::getMapOdomTf(int sleep) {
     // wait amcl tf from the first
     // at reboot, this tf only publish once
-    bool getmsg = l.getOneMessage(odomtf_topic_, 3);
-    if (getmsg)
-        tf::poseMsgToTF(*mapOdom_data_, mapOdomTf_);
-    else {
-
-
-    }
-
+    bool getmsg = l.getOneMessage(odomtf_topic_, sleep);
 
     // todo:baypass
 #if debug_bypass
-    mapOdomTf_.setOrigin(tf::Vector3(-17.95, 10.8, 0.0));
-    mapOdomTf_.setRotation(tf::Quaternion(0.0, 0.0, -0.144, 0.989));
+    if (!getFirstmapOdomTf_) {
+        mapOdomTf_.setOrigin(tf::Vector3(-18.659, 13.62, 0.0));
+        mapOdomTf_.setRotation(tf::Quaternion(0.0, 0.0, -0.64837, 0.76133));
+        geometry_msgs::Pose pose;
+        tf::poseTFToMsg(mapOdomTf_, pose);
+        mapOdom_data_.get()->pose.pose = pose;
+        getmsg = true;
+    }
 
-
-    updateSharedData(mapOdomTf_);
-    threadClass_.start();
-
-    getmsg = true;
 #endif
-    return getmsg;
 
-
+    if (!getFirstmapOdomTf_) {
+        if (!getmsg) {
+            return false;
+        } else {
+            getFirstmapOdomTf_ = true;
+            tf::Transform transform;
+            tf::poseMsgToTF(mapOdom_data_.get()->pose.pose, transform);
+            updateSharedData(transform);
+        }
+    } else {
+        // get tf at usual work time
+        tf::poseMsgToTF(mapOdom_data_.get()->pose.pose, mapOdomTf_);
+    }
+    return true;
 }
 
+// get laser pose
+// store to laserPose_
 bool BoardFinder::getLaserPose() {
 
     ROS_INFO("getLaserPose start tf");
@@ -162,28 +147,30 @@ bool BoardFinder::getLaserPose() {
 
     transform.setIdentity();
 
-    bool succ = l.getTransform("odom", "laser", transform, laser_data_.get()->header.stamp, 0.01, false);
+    // get odom to laser tf
+    bool succ = l.getTransform(odom_frame_id_, laser_frame_id_, transform, laser_data_.get()->header.stamp, 0.01,
+                               false);
     if (succ) {
         tf::poseTFToMsg(mapOdomTf_ * transform, laserPose_);
-        ROS_INFO_STREAM("laserpose\n " << laserPose_);
+        ROS_INFO_STREAM("laser pose\n " << laserPose_);
     }
+    // get odom to base tf
+    bool succ2 = l.getTransform(odom_frame_id_, base_frame_id_, odomBaseTf_, laser_data_.get()->header.stamp, 0.01,
+                                false);
 
-    return succ;
+    if (baseLaserTf_.getOrigin().getX() == 0.0)
+        l.getTransform(base_frame_id_, laser_frame_id_, baseLaserTf_, laser_data_.get()->header.stamp);
+
+    return succ && succ2;
 }
 
 bool BoardFinder::getBoardPosition(vector<Position> &pointsW, vector<Position> &points) {
 
-    if (!updateSensor()) {
 
-        ROS_INFO("No laser, skip!!");
-        return false;
-    }
-    if (!getLaserPose()) {
-        ROS_INFO("No tf , skip!!");
-        return false;
-    }
+    // read xml file
     xmlToPoints(pointsW);
     points = pointsW;
+    // transform point from map frame to laser frame
     transformPoints(points);
 
     return true;
@@ -239,7 +226,7 @@ bool BoardFinder::xmlToPoints(vector<Position> &pointsW) {
 
         double boardtorobotangle = atan2(laserPose_.position.y - p.y, laserPose_.position.x - p.x);
         double robottoboardangle = atan2(p.y - laserPose_.position.y, p.x - laserPose_.position.x);
-        p.angle = robottoboardangle;
+        p.angle = normalAngle(robottoboardangle, yaw);
 
 //        bool in_view = robottoboardangle > laser_data_.get()->angle_min && robottoboardangle < laser_data_.get()->angle_max;
         double direction1 = normalDiff(boardtorobotangle, p.yaw);
@@ -290,8 +277,6 @@ vector<Position> BoardFinder::detectBoard() {
     vector<Position> ps;
 
     ROS_INFO("start scan");
-    if (!updateSensor())
-        return ps;
 
     // vector to valarray
     valarray<float> ranges = container::createValarrayFromVector<float>(laser_data_.get()->ranges);
@@ -487,111 +472,98 @@ bool
 BoardFinder::findNN(vector<Position> &realPointsW, vector<Position> &realPoints, vector<Position> &detectPoints) {
 
 
+    // if point Num >=2
+    // use pattern matncher
+    // if only detect one ;
+    // use kdtree search
+
     vector<Position> realPointReg, detecctPointReg;
 
-    // call pattern match
-    // how to detect failure
-    auto assign = patternMatcher.match(detectPoints, realPoints);
-    if (assign.empty()) {
+    if (detectPoints.size() > 1) {
+        // call pattern match
+        // how to detect failure
+        auto assign = patternMatcher.match(detectPoints, realPoints);
+        if (assign.empty()) {
 
-        cout << "match failure!!" << endl;
-        return false;
+            cout << "match failure!!" << endl;
+            return false;
 
-    }
-
-    for (int i = 0; i < assign.size(); i++) {
-        realPointReg.push_back(realPointsW[std::get<1>(assign[i])]);
-        detecctPointReg.push_back(detectPoints[std::get<0>(assign[i])]);
-    }
-    realPointsW = realPointReg;
-    detectPoints = detecctPointReg;
-
-    return true;
-
-#if 0
-    realPointReg = realPoints;
-    bool zerofisrt = false;
-    if (realPoints[0].y > realPoints[1].y) {
-        zerofisrt = true;
-    }
-    Position tmp;
-
-    if ((detectPointsW[0].y > detectPointsW[1].y) != (realPoints[0].y > realPoints[1].y)) {
-        realPoints[0] = realPointReg[1];
-        realPoints[1] = realPointReg[0];
-
-    }
-
-    return;
-
-#endif
-
-#if 0
-
-    // create kdtree
-    const int npoints = realPoints.size();
-    std::vector<kdtree::Point2d> points(npoints);
-    for (int i = 0; i < npoints; i++) {
-        points[0] = kdtree::Point2d(realPoints[i].x, realPoints[i].y);
-    }
-
-
-    // build k-d tree
-    kdtree::KdTree<kdtree::Point2d> kdtree(points);
-
-    double radius = 2.0;
-    // query point
-    vector<vector<int> > results;
-    for (int i = 0; i < detectPointsW.size(); i++) {
-        // create query point
-        //search
-        vector<int> res;
-
-
-        kdtree::Point2d query(detectPointsW[i].x, detectPointsW[i].y);
-        res = kdtree.queryIndex(query, kdtree::SearchMode::radius, radius);
-
-        results.push_back(res);
-    }
-
-    int startidx = 0;
-    for (int i = 0; i < results.size(); i++) {
-        if (results[i].size() == 1) {
-
-            detecctPointReg.push_back(detectPoints[i]);
-            realPointReg.push_back(realPoints[results[i][0]]);
         }
+
+        for (int i = 0; i < assign.size(); i++) {
+            realPointReg.push_back(realPointsW[std::get<1>(assign[i])]);
+            detecctPointReg.push_back(detectPoints[std::get<0>(assign[i])]);
+        }
+        realPointsW = realPointReg;
+        detectPoints = detecctPointReg;
+
+        return true;
+    } else {
+
+        // create kd tree
+        // search
+        // create kdtree
+        const int npoints = realPoints.size();
+        std::vector<kdtree::Point2d> points(npoints);
+        for (int i = 0; i < npoints; i++) {
+            points[0] = kdtree::Point2d(realPoints[i].x, realPoints[i].y);
+        }
+
+
+        // build k-d tree
+        kdtree::KdTree<kdtree::Point2d> kdtree(points);
+
+        double radius = 0.5;
+        // query point
+        vector<vector<int> > results;
+        for (int i = 0; i < detectPoints.size(); i++) {
+            // create query point
+            //search
+            vector<int> res;
+
+
+            kdtree::Point2d query(detectPoints[i].x, detectPoints[i].y);
+            res = kdtree.queryIndex(query, kdtree::SearchMode::radius, radius);
+
+            results.push_back(res);
+        }
+
+        if (results.empty()) {
+            return false;
+        }
+        for (int i = 0; i < results.size(); i++) {
+            if (!results[i].empty()) {
+
+                detecctPointReg.push_back(detectPoints[i]);
+                realPointReg.push_back(realPointsW[results[i][0]]);
+            }
+        }
+
+        realPointsW = realPointReg;
+        detectPoints = detecctPointReg;
+        return true;
+
+        // check results, remove duplicate or invalid points;
+
+
+        // start with a point matcn only one point
+        // maybe it's fake detection
+
+
+        // clear and check distancce  and sort vector
+
     }
 
-    realPoints = realPointReg;
-    detectPoints = detecctPointReg;
-
-    // check results, remove duplicate or invalid points;
+#if 0
 
 
-    // start with a point matcn only one point
-    // maybe it's fake detection
-
-
-    // clear and check distancce  and sort vector
 #endif
 }
 
 void BoardFinder::updateMapOdomTf(tf::Transform laserPose, ros::Time time) {
 
-    tf::Transform odomTobase;
 
-    if (!l.getTransform("odom", "base_link", odomTobase, time))
-        return;
-
-    if (baseLaserTf_.getOrigin().getX() == 0.0)
-        l.getTransform("base_link", "laser", baseLaserTf_);
-
-    mapOdomTf_ = laserPose * baseLaserTf_.inverse() * odomTobase.inverse();
-
-    cout << " count = " << mapToodomtfPtr_.use_count() << endl;
-
-    updateSharedData(mapOdomTf_);
+    updateSharedData(laserPose * baseLaserTf_.inverse() * odomBaseTf_.inverse());
 
 
 
@@ -606,18 +578,24 @@ void BoardFinder::updateSharedData(tf::Transform mapTOodomTf) {
     ros::Duration transform_tolerance;
     transform_tolerance.fromSec(0.1);
     ros::Time transform_expiration = (tn + transform_tolerance);
+    mapOdomTf_ = tf::StampedTransform(mapTOodomTf,
+                                      transform_expiration,
+                                      fixed_frame_id_, odom_frame_id_);
+
+    geometry_msgs::Pose debug_odom;
+    tf::poseTFToMsg(mapOdomTf_, debug_odom);
+    ROS_ERROR_STREAM("update odom \n" << debug_odom);
 
 
+    // segementation  fault: use shared ptr before initialise
+    std::swap(*mapToodomtfPtr_, mapOdomTf_);
 
-    // todo:segementation  fault???
-    // empy ? count 0
-    mapToodomtfPtr_.get()->setOrigin(mapOdomTf_.getOrigin());
-    mapToodomtfPtr_.get()->setRotation(mapOdomTf_.getRotation());
-    mapToodomtfPtr_.get()->stamp_ = transform_expiration;
-//    std::swap(*mapToodomtfPtr_, mapTOodomTfstamped);
-
-    cout << "23333" << endl;
-
+    // if thread is not running ; start running
+    if (!threadClass_.isRunning()) {
+#if 1
+        threadClass_.start();
+#endif
+    }
 }
 
 void BoardFinder::computeUpdatedPose(vector<Position> realPoints, vector<Position> detectPoints) {
@@ -672,6 +650,10 @@ void BoardFinder::computeUpdatedPose(vector<Position> realPoints, vector<Positio
 
     laserPose = realTarget * detectTarget.inverse();
 
+    geometry_msgs::Pose debug_pose;
+    tf::poseTFToMsg(laserPose, debug_pose);
+    ROS_ERROR_STREAM("laser pose \n" << debug_pose);
+
 
 
 
@@ -700,15 +682,21 @@ void BoardFinder::findLocation() {
     // get real board position
     vector<Position> realPointsW;
     vector<Position> realPoints;
+    // get scan data
+    if (!updateSensor()) {
+
+        ROS_INFO("No laser, skip!!");
+        return;
+    }
+
+    // get board from xml data
     getBoardPosition(realPointsW, realPoints);
 
 
     // detect board position
     vector<Position> detectPoints = detectBoard();
-//    vector<Position> detectPointsW = detectPoints;
 
-
-
+    // test match function
 #if 0
     // test matcher;ok
     vector<Position> p1, p2;
@@ -727,19 +715,9 @@ void BoardFinder::findLocation() {
 
 
     // if successful
-    if (realPoints.size() > 1 && detectPoints.size() > 1) {
+    if (!realPoints.empty() && !detectPoints.empty()) {
 
-        // transform detectPoints to map frame
-
-
-
-
-
-        // find match and sort vector
-        // convert map board to laser frame
-
-        //todo:bypass
-
+        // find matched pattern
         findNN(realPointsW, realPoints, detectPoints);
 
         // if detect more board
@@ -752,12 +730,6 @@ void BoardFinder::findLocation() {
 
         }
 
-
-#if 0
-        computeTagetVector();
-        getBasePose();
-        updateOdom();
-#endif
 
     }
 }

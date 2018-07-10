@@ -43,10 +43,7 @@ int main(int argc, char **argv) {
     ros::Rate(1).sleep();
 
 
-
-
-
-    ros::Rate r(10);
+    ros::Rate r(1);
 
 #if 1
     // construct a board Finder

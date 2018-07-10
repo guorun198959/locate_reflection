@@ -1,0 +1,27 @@
+<launch>
+<!--include r2000 laser node-->
+
+<include file="$(find pepperl_fuchs_r2000)/launch/r2000.launch"/>
+
+
+<!--include reflection locate  node-->
+<!-- set working path cwd="ROS_HOME|node" -->
+    <node pkg="locate_reflection" type="locate_reflection_node" name="locate_reflection_node" output="screen" respawn="false" cwd="node">
+
+    </node>
+
+<!--include amcl node-->
+    <include file="$(find amcl)/examples/amcl.launch.xml">
+        <arg name="scan_topic" value="scan"/>
+        <arg name="use_map_topic" value="true"/>
+        <arg name="use_post_process" value="true"/>
+        <arg name="tf_broadcast" value="false"/>
+        <arg name="use_pre_process" value="false"/>
+        <arg name="scan_valid_cnt_min" value="0.9"/>
+        <arg name="scan_valid_min" value="0.1"/>
+        <arg name="tf_publish" value="true"/>
+
+    </include>
+
+
+</launch>
