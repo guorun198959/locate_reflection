@@ -9,6 +9,7 @@
 #include <chrono>
 #include <boost/bind.hpp>
 // node msg and srv
+#include "amcl/amcl_particles.h"
 
 #include <cpp_utils/container.h>
 #include <cpp_utils/listener.h>
@@ -110,6 +111,7 @@ private:
     string scan_topic_;
     string odomtf_topic_;
     string initialpose_topic_;
+    string set_particles_service_name_;
     string odom_frame_id_;
     string base_frame_id_;
     string laser_frame_id_;
@@ -140,20 +142,31 @@ private:
     bool getMapOdomTf(int sleep = 0.1);
     void updateSharedData(tf::Transform mapTOodomTf);
 
+    void updateMapOdomTf(tf::Transform laserPose);
+
+    // get initialpose
     bool getInitialpose();
 
 
+    // read xmlfile
+    // select board given laser pose
     bool getBoardPosition(vector<Position> &pointsW, vector<Position> &points);
 
     bool xmlToPoints(vector<Position> &pointsW);
 
+    bool transformPoints(vector<Position> &realPoints);
+
+
+    // match realboard and detect board
     bool findNN(vector<Position> &realPointsW, vector<Position> &realPoints, vector<Position> &detectPoints);
 
+    // compute real and detect pose
+    // get pose chane to calibrate mapodom
     void computeUpdatedPose(vector<Position> realPoints, vector<Position> detectPoints);
 
-    void updateMapOdomTf(tf::Transform laserPose);
+    // reset amcl
+    bool resetAmcl();
 
-    bool transformPoints(vector<Position> &realPoints);
 
 
     bool updateSensor();

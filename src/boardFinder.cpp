@@ -4,8 +4,12 @@
 
 #include "locate_reflection/boardFinder.h"
 #include <locate_reflection/patternMatcher.h>
-#include <opencv2/opencv.hpp>
 #include <cpp_utils/svdlinefitting.h>
+
+
+#include <boost/assign.hpp>
+#include <opencv2/opencv.hpp>
+
 
 #define debug_pub true
 #define debug_bypass true
@@ -17,6 +21,7 @@ BoardFinder::BoardFinder(ros::NodeHandle nh, ros::NodeHandle nh_private) :
     scan_topic_ = "scan";
     odomtf_topic_ = "amcl_tf";
     initialpose_topic_ = "initialpose";
+    set_particles_service_name_ = "/amcl/set_particles";
     // frame
     odom_frame_id_ = "odom";
     base_frame_id_ = "base_link";
@@ -45,6 +50,10 @@ BoardFinder::BoardFinder(ros::NodeHandle nh, ros::NodeHandle nh_private) :
     auto res3 = l.createSubcriber<geometry_msgs::PoseWithCovarianceStamped>(initialpose_topic_, 1);
 
     initialPose_data_ = std::get<0>(res3);
+
+    // create /amcl/set_particles
+    l.createServiceClient<amcl::amcl_particles>(set_particles_service_name_);
+
 
     //  thread shared data
     mapToodomtfPtr_ = std::make_shared<tf::StampedTransform>();
@@ -709,6 +718,65 @@ void BoardFinder::computeUpdatedPose(vector<Position> realPoints, vector<Positio
 
 }
 
+// reset amcl given base pose
+bool BoardFinder::resetAmcl() {
+    using namespace Eigen;
+    amcl::amcl_particles srv;
+
+    // add pse array
+    srv.request.pose_array_msg.poses.clear();
+//    srv.request.pose_array_msg.poses.push_back(latest_pose);
+
+    // add initial pose
+    geometry_msgs::PoseWithCovariance initial_pose;
+    // set mapodomtf*odombasetf as initial pose
+    tf::poseTFToMsg(mapOdomTf_ * odomBaseTf_, initial_pose.pose);
+
+    double yaw = tf::getYaw(initial_pose.pose.orientation);
+
+    // cov
+    auto x_cov = param_["x_cov"].As<double>();
+    auto y_cov = param_["y_cov"].As<double>();
+    auto yaw_cov = param_["yaw_cov"].As<double>();
+
+
+    MatrixXd mat_1(2, 2);
+    mat_1 << cos(yaw), cos(yaw + 0.5 * M_PI),
+            sin(yaw), sin(yaw + 0.5 * M_PI);
+#if 1
+    MatrixXd mat_2(2, 2);
+    mat_2 << x_cov, 0,
+            0, y_cov;
+
+    MatrixXd mat_3(2, 2);
+    mat_3 = mat_1 * mat_2 * mat_1.transpose();
+
+    initial_pose.covariance = boost::assign::list_of
+            (mat_3(0, 0))(mat_3(0, 1))(0)(0)(0)(0)
+            (mat_3(1, 0))(mat_3(1, 1))(0)(0)(0)(0)
+            (0)(0)(0)(0)(0)(0)
+            (0)(0)(0)(0)(0)(0)
+            (0)(0)(0)(0)(0)(0)
+            (0)(0)(0)(0)(0)(yaw_cov);
+#endif
+    srv.request.initial_pose.header.stamp = ros::Time::now();
+    srv.request.initial_pose.header.frame_id = "map";
+    srv.request.initial_pose.pose = initial_pose;
+
+
+    ROS_INFO("set filter cnt: %d", int(srv.request.pose_array_msg.poses.size()));
+
+
+    if (l.callService(set_particles_service_name_, srv)) {
+        ROS_INFO(" call service ok!: %ld", (long int) srv.response.success);
+    } else {
+        ROS_ERROR("Failed to call service set_filter");
+    }
+
+    return true;
+
+
+}
 
 // find reflection board and update map-odom tf
 // get board in map ; given baselink
@@ -765,6 +833,7 @@ void BoardFinder::findLocation() {
         if (!detectPoints.empty()) {
             // compute target vector
             computeUpdatedPose(realPointsW, detectPoints);
+            resetAmcl();
             lastPublishOk_ = true;
 
         } else {
