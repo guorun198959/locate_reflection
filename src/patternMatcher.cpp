@@ -34,20 +34,24 @@ PatternMatcher::PatternMatcher() {
 
 vector<tuple<int, int> > PatternMatcher::match(vector<Position> &obsPos, vector<Position> &mapPos) {
     // convert vector to matrix
-    MatrixXf PointObs(int(obsPos.size()), 2);
-    MatrixXf PointMap(int(mapPos.size()), 2);
-    for (int i = 0; i < obsPos.size(); i++) {
+    // for creating a circle loop
+    int obsSize = int(obsPos.size());
+    int mapSize = int(mapPos.size());
+    MatrixXf PointObs(obsSize, 2);
+
+    MatrixXf PointMap(mapSize, 2);
+    for (int i = 0; i < obsSize; i++) {
         PointObs.row(i) << obsPos[i].x, obsPos[i].y;
     }
 
-    for (int i = 0; i < mapPos.size(); i++) {
+    for (int i = 0; i < mapSize; i++) {
         PointMap.row(i) << mapPos[i].x, mapPos[i].y;
     }
 
     cout << "get obs points = \n" << PointObs << endl;
     cout << "get map points = \n" << PointMap << endl;
 //    cout << "distance = " << (PointObs - PointMap).norm() << endl;
-    cout << "get obs shape = " << PointObs.rows() << "," << PointObs.cols() << endl;
+//    cout << "get obs shape = " << PointObs.rows() << "," << PointObs.cols() << endl;
 
     // assign matrix
     vector<AssignmentMatrix> rootvVec;
@@ -56,7 +60,7 @@ vector<tuple<int, int> > PatternMatcher::match(vector<Position> &obsPos, vector<
     // return
     // select one pair [i,j] in obs
     cout << "==== start find root " << endl;
-    for (int i = 0; i < PointObs.rows(); i++) {
+    for (int i = 0; i < obsSize; i++) {
 
         for (int j = 0; j < i; j++) {
 
@@ -64,19 +68,22 @@ vector<tuple<int, int> > PatternMatcher::match(vector<Position> &obsPos, vector<
             printf("@ obs distance %f, between %d,%d \n", distobs, i, j);
 
             // loop in map
-            for (int m = 0; m < PointMap.rows(); m++) {
+            for (int m = 0; m < mapSize; m++) {
 
                 for (int n = 0; n < m; n++) {
 
                     double distMap = (PointMap.row(m) - PointMap.row(n)).norm();
+
                     printf("map distance %f, between %d,%d \n", distMap, m, n);
 
-                    if (fabs(distobs - distMap) < radius_) {
+                    double distDiff = fabs(distobs - distMap);
+                    if (distDiff < radius_) {
+                        double score = scoreFunc(distDiff, distScoreBase_, 2);
                         printf("i=%d, j=%d,m=%d,n=%d\n", i, j, m, n);
                         // assign matrix
-                        AssignmentMatrix Am(PointObs.rows(), PointMap.rows());
-                        Am.add(i, m, 0);
-                        Am.add(j, n, 0);
+                        AssignmentMatrix Am(obsSize, mapSize);
+                        Am.add(i, m, score);
+                        Am.add(j, n, score);
                         rootvVec.push_back(Am);
                     }
                 }
@@ -120,22 +127,24 @@ vector<tuple<int, int> > PatternMatcher::match(vector<Position> &obsPos, vector<
         int tmpL = mapL - 1, tmpR = mapR - 1;
         for (int obsid = obsL - 1; obsid >= 0; obsid--) {
             cout << "point < L obsid = " << obsid << endl;
-            for (int mapid = tmpL; mapid >= 0; mapid--) {
-                cout << "point < L mapid = " << mapid << endl;
+            for (int mapid = tmpL; mapid > mapR - mapSize; mapid--) {
+                int tmpid;
+                tmpid = (mapid < 0) ? mapid + mapSize : mapid;
+                cout << "point < L mapid = " << tmpid << endl;
 
                 // how to compute match score
                 // for one point
                 // caculate distance to pointL, pointR,angle
                 double distDiff = fabs((PointObs.row(obsid) - PointObs.row(obsL)).norm() +
                                        (PointObs.row(obsid) - PointObs.row(obsR)).norm() -
-                                       ((PointMap.row(mapid) - PointMap.row(mapL)).norm() +
-                                        (PointMap.row(mapid) - PointMap.row(mapR)).norm())
+                                       ((PointMap.row(tmpid) - PointMap.row(mapL)).norm() +
+                                        (PointMap.row(tmpid) - PointMap.row(mapR)).norm())
                 );
                 double angleDiff = fabs(
                         atan2(PointObs(obsid, 1) - PointObs(obsL, 1), PointObs(obsid, 0) - PointObs(obsL, 0))
                         - atan2(PointObs(obsR, 1) - PointObs(obsL, 1), PointObs(obsR, 0) - PointObs(obsL, 0))
-                        - (atan2(PointMap(mapid, 1) - PointMap(mapL, 1),
-                                 PointMap(mapid, 0) - PointMap(mapL, 0))
+                        - (atan2(PointMap(tmpid, 1) - PointMap(mapL, 1),
+                                 PointMap(tmpid, 0) - PointMap(mapL, 0))
                            - atan2(PointMap(mapR, 1) - PointMap(mapL, 1),
                                    PointMap(mapR, 0) - PointMap(mapL, 0))));
 
@@ -149,7 +158,7 @@ vector<tuple<int, int> > PatternMatcher::match(vector<Position> &obsPos, vector<
                     // update bound
                     tmpL = mapid - 1;
                     // update score
-                    rootvVec[idx].add(obsid, mapid, score);
+                    rootvVec[idx].add(obsid, tmpid, score);
                     cout << "update assign matrix = \n" << rootvVec[idx].assignmentMatrix << endl;
                 }
             }
@@ -191,26 +200,28 @@ vector<tuple<int, int> > PatternMatcher::match(vector<Position> &obsPos, vector<
         // check point >R
 
         tmpR = mapR + 1;
-        for (int obsid = obsR + 1; obsid < rootvVec[idx].assignmentMatrix.rows(); obsid++) {
+        for (int obsid = obsR + 1; obsid < obsSize; obsid++) {
             cout << "point >R obsid = " << obsid << endl;
 
-            for (int mapid = tmpR; mapid < rootvVec[idx].assignmentMatrix.cols(); mapid++) {
-                cout << "point >R mapid = " << mapid << endl;
+            for (int mapid = tmpR; mapid < mapSize + mapL; mapid++) {
+                int tmpid = mapid;
+                tmpid = (mapid > mapSize - 1) ? mapid - mapSize : mapid;
+                cout << "point >R mapid = " << tmpid << endl;
                 double distDiff = fabs((PointObs.row(obsid) - PointObs.row(obsL)).norm() +
                                        (PointObs.row(obsid) - PointObs.row(obsR)).norm() -
-                                       ((PointMap.row(mapid) - PointMap.row(mapL)).norm() +
-                                        (PointMap.row(mapid) - PointMap.row(mapR)).norm())
+                                       ((PointMap.row(tmpid) - PointMap.row(mapL)).norm() +
+                                        (PointMap.row(tmpid) - PointMap.row(mapR)).norm())
                 );
                 double angleDiff = fabs(
                         atan2(PointObs(obsid, 1) - PointObs(obsL, 1), PointObs(obsid, 0) - PointObs(obsL, 0))
                         - atan2(PointObs(obsR, 1) - PointObs(obsL, 1), PointObs(obsR, 0) - PointObs(obsL, 0))
-                        - (atan2(PointMap(mapid, 1) - PointMap(mapL, 1),
-                                 PointMap(mapid, 0) - PointMap(mapL, 0))
+                        - (atan2(PointMap(tmpid, 1) - PointMap(mapL, 1),
+                                 PointMap(tmpid, 0) - PointMap(mapL, 0))
                            - atan2(PointMap(mapR, 1) - PointMap(mapL, 1),
                                    PointMap(mapR, 0) - PointMap(mapL, 0))));
 
-                double test = -(atan2(PointMap(mapid, 1) - PointMap(mapL, 1),
-                                      PointMap(mapid, 0) - PointMap(mapL, 0))
+                double test = -(atan2(PointMap(tmpid, 1) - PointMap(mapL, 1),
+                                      PointMap(tmpid, 0) - PointMap(mapL, 0))
                                 - atan2(PointMap(mapR, 1) - PointMap(mapL, 1),
                                         PointMap(mapR, 0) - PointMap(mapL, 0)));
 
@@ -221,7 +232,7 @@ vector<tuple<int, int> > PatternMatcher::match(vector<Position> &obsPos, vector<
                     // update bound
                     tmpR = mapid + 1;
                     // update score
-                    rootvVec[idx].add(obsid, mapid, score);
+                    rootvVec[idx].add(obsid, tmpid, score);
                     cout << "update assign matrix = \n" << rootvVec[idx].assignmentMatrix << endl;
                 }
             }

@@ -74,7 +74,7 @@ inline double normalAngle(double angle1, double angle2) {
     return diff;
 }
 inline bool angleCompare(const Position p1, const Position p2) {
-    return atan2(p1.y, p1.x) < atan2(p2.y, p2.x);
+    return p1.angle < p2.angle;
 
 }
 

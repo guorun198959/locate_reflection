@@ -486,6 +486,8 @@ BoardFinder::findNN(vector<Position> &realPointsW, vector<Position> &realPoints,
         if (assign.empty()) {
 
             cout << "match failure!!" << endl;
+            realPointsW = realPointReg;
+            detectPoints = detecctPointReg;
             return false;
 
         }
@@ -506,14 +508,14 @@ BoardFinder::findNN(vector<Position> &realPointsW, vector<Position> &realPoints,
         const int npoints = realPoints.size();
         std::vector<kdtree::Point2d> points(npoints);
         for (int i = 0; i < npoints; i++) {
-            points[0] = kdtree::Point2d(realPoints[i].x, realPoints[i].y);
+            points[i] = kdtree::Point2d(realPoints[i].x, realPoints[i].y);
         }
 
 
         // build k-d tree
         kdtree::KdTree<kdtree::Point2d> kdtree(points);
 
-        double radius = 0.5;
+        double radius = param_["query_radius"].As<double>();;
         // query point
         vector<vector<int> > results;
         for (int i = 0; i < detectPoints.size(); i++) {

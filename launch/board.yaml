@@ -11,6 +11,7 @@ distRatio: 2
 angleRatio: 6
 matchScore: 1.0
 finalScore: 1.0
+query_radius: 1.5
 board_position:
   - x: -21.5
     y: 15.9

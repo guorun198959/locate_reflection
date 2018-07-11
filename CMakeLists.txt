@@ -101,7 +101,7 @@ configure_file(
 
 #### test node
 
-set(LIB_SRC include/yaml/Yaml.cpp src/boardFinder.cpp src/patternMatcher.cpp include/GRANSAC/LineFitting.cpp)
+set(LIB_SRC include/yaml/Yaml.cpp src/boardFinder.cpp src/patternMatcher.cpp)
 add_executable(${PROJECT_NAME}_node src/main.cpp ${LIB_SRC})
 target_link_libraries(${PROJECT_NAME}_node ${catkin_LIBRARIES} ${OpenCV_LIBS})
 
