@@ -36,6 +36,8 @@ namespace rosnode {
         //call callback_queue given specific topic
         map<string, std::shared_ptr<ros::CallbackQueue>> callbackqueue_;
 
+        map<string, std::shared_ptr<ros::ServiceClient>> servicequeue_;
+
         vector<ros::Subscriber> subscriberVec_;
 
         tf::TransformListener *tf_;
@@ -47,6 +49,8 @@ namespace rosnode {
         // check if topic callback queue exists in map
         bool topicExists(string topic);
 
+        // check if service exist
+        bool serviceExists(string service_name);
 
     public:
         Listener(ros::NodeHandle nh, ros::NodeHandle nh_private);
@@ -64,6 +68,12 @@ namespace rosnode {
         template<class T>
         tuple<std::shared_ptr<T>, std::shared_ptr<tf::MessageFilter<T>>, std::shared_ptr<message_filters::Subscriber<T>>>
         createSubcriberFilteredTf(string topic, unsigned int buffer_size, string frame);
+
+        template<class T>
+        bool createServiceClient(string service_name);
+
+        template<class T>
+        bool callService(string service_name, T &srv);
 
         template<class T>
         std::shared_ptr<T> getChat(string topic);
@@ -114,6 +124,16 @@ namespace rosnode {
             return false;
     }
 
+    inline bool Listener::serviceExists(string service_name) {
+        //map<string, std::shared_ptr<ros::ServiceClient>>
+        if (container::keyExists<string, std::shared_ptr<ros::ServiceClient>>(servicequeue_, service_name)) {
+            return true;
+        } else
+            return false;
+    }
+
+    //serviceExists
+
 
     template<class T>
     tuple<std::shared_ptr<T>, ros::Subscriber> Listener::createSubcriber(string topic, unsigned int buffer_size) {
@@ -152,6 +172,47 @@ namespace rosnode {
         return res;
 
     }
+
+    template<class T>
+    bool Listener::createServiceClient(string service_name) {
+        tuple<std::shared_ptr<T>, ros::Subscriber> res;
+        // check if service exist
+        if (serviceExists(service_name)) {
+            ROS_ERROR("%s service_name exists! return empty shared_ptr", service_name.c_str());
+            return false;
+
+        }
+
+        // create a serviceclient
+        ros::ServiceClient client;
+
+        client = nh_.serviceClient<T>(service_name);
+        std::shared_ptr<ros::ServiceClient> s = std::make_shared<ros::ServiceClient>(client);
+
+        servicequeue_[service_name] = s;
+
+        return true;
+    }
+
+    template<class T>
+    bool Listener::callService(string service_name, T &srv) {
+        // check if service exist
+        if (!serviceExists(service_name)) {
+            ROS_ERROR("%s service_name not exists! ", service_name.c_str());
+            return false;
+
+        }
+
+        //call service
+
+        if (servicequeue_[service_name].get()->call(srv)) {
+            ROS_INFO(" call service %s ok!", service_name.c_str());
+        } else {
+            ROS_ERROR("Failed to call service %s", service_name.c_str());
+        }
+        return true;
+    }
+
 
     template<class T>
     std::shared_ptr<T> Listener::getChat(string topic) {

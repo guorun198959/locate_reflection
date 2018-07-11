@@ -12,6 +12,8 @@
 #include <cpp_utils/svdlinefitting.h>
 // for debug
 
+#include <std_srvs/Empty.h>
+
 template<class Vector3>
 std::pair<Vector3, Vector3> best_line_from_points(const std::vector<Vector3> &c) {
     // copy coordinates to  matrix in Eigen format
@@ -45,7 +47,16 @@ int main(int argc, char **argv) {
 
     ros::Rate r(5);
 
-#if 1
+    rosnode::Listener l(nh, nh_private);
+    string service = "global_localization";
+    l.createServiceClient<std_srvs::Empty>(service);
+    std_srvs::Empty srv;
+    l.callService(service, srv);
+
+    return 0;
+
+
+#if 0
     // construct a board Finder
     BoardFinder finder(nh, nh_private);
 

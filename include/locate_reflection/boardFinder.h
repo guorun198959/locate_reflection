@@ -95,6 +95,7 @@ private:
     // shared data for topic
     std::shared_ptr<sensor_msgs::LaserScan> laser_data_;
     std::shared_ptr<geometry_msgs::PoseWithCovarianceStamped> mapOdom_data_;
+    std::shared_ptr<geometry_msgs::PoseWithCovarianceStamped> initialPose_data_;
 
     // internal state
     geometry_msgs::Pose laserPose_;
@@ -102,10 +103,13 @@ private:
     tf::Transform baseLaserTf_;
     tf::Transform odomBaseTf_;
     tf::StampedTransform mapOdomTf_;
+    bool lastPublishOk_;
+
 
     // psrameter
     string scan_topic_;
     string odomtf_topic_;
+    string initialpose_topic_;
     string odom_frame_id_;
     string base_frame_id_;
     string laser_frame_id_;
@@ -134,8 +138,9 @@ private:
 
     // get tf from topic
     bool getMapOdomTf(int sleep = 0.1);
-
     void updateSharedData(tf::Transform mapTOodomTf);
+
+    bool getInitialpose();
 
 
     bool getBoardPosition(vector<Position> &pointsW, vector<Position> &points);
@@ -146,7 +151,7 @@ private:
 
     void computeUpdatedPose(vector<Position> realPoints, vector<Position> detectPoints);
 
-    void updateMapOdomTf(tf::Transform laserPose, ros::Time time);
+    void updateMapOdomTf(tf::Transform laserPose);
 
     bool transformPoints(vector<Position> &realPoints);
 

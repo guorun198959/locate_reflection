@@ -16,6 +16,7 @@ BoardFinder::BoardFinder(ros::NodeHandle nh, ros::NodeHandle nh_private) :
     // topic
     scan_topic_ = "scan";
     odomtf_topic_ = "amcl_tf";
+    initialpose_topic_ = "initialpose";
     // frame
     odom_frame_id_ = "odom";
     base_frame_id_ = "base_link";
@@ -27,6 +28,7 @@ BoardFinder::BoardFinder(ros::NodeHandle nh, ros::NodeHandle nh_private) :
     mapOdomTf_.setIdentity();
     odomBaseTf_.setIdentity();
     getFirstmapOdomTf_ = false;
+    lastPublishOk_ = false;
 
     // create scan sub
     auto res = l.createSubcriber<sensor_msgs::LaserScan>(scan_topic_, 10);
@@ -37,6 +39,12 @@ BoardFinder::BoardFinder(ros::NodeHandle nh, ros::NodeHandle nh_private) :
     auto res2 = l.createSubcriber<geometry_msgs::PoseWithCovarianceStamped>(odomtf_topic_, 1);
     // shared tf data
     mapOdom_data_ = std::get<0>(res2);
+
+    // create initialpose sub
+
+    auto res3 = l.createSubcriber<geometry_msgs::PoseWithCovarianceStamped>(initialpose_topic_, 1);
+
+    initialPose_data_ = std::get<0>(res3);
 
     //  thread shared data
     mapToodomtfPtr_ = std::make_shared<tf::StampedTransform>();
@@ -81,6 +89,13 @@ BoardFinder::~BoardFinder() {
     delete tfb_;
 }
 
+// get intialpose
+// we only know it's seted, and wait for new amcl_tf
+bool BoardFinder::getInitialpose() {
+    bool getmsg = l.getOneMessage(initialpose_topic_, 0.1);
+    return getmsg;
+}
+
 // get scan data
 // if no data , return false;
 bool BoardFinder::updateSensor() {
@@ -100,9 +115,20 @@ bool BoardFinder::updateSensor() {
 // get tf data
 // if no data return false;
 bool BoardFinder::getMapOdomTf(int sleep) {
+
+    // check if get initialpose
+
+    bool getresetpose = getInitialpose();
     // wait amcl tf from the first
     // at reboot, this tf only publish once
-    bool getmsg = l.getOneMessage(odomtf_topic_, sleep);
+    bool getmsg;
+    if (getresetpose) {
+        getmsg = l.getOneMessage(odomtf_topic_, -1);
+
+    } else {
+        getmsg = l.getOneMessage(odomtf_topic_, sleep);
+
+    };
 
     // todo:baypass
 #if debug_bypass
@@ -117,18 +143,26 @@ bool BoardFinder::getMapOdomTf(int sleep) {
 
 #endif
 
-    if (!getFirstmapOdomTf_) {
+    if (!getFirstmapOdomTf_ || getresetpose) {
         if (!getmsg) {
             return false;
         } else {
             getFirstmapOdomTf_ = true;
             tf::Transform transform;
             tf::poseMsgToTF(mapOdom_data_.get()->pose.pose, transform);
+            // shared and start publishing in thread
             updateSharedData(transform);
         }
     } else {
         // get tf at usual work time
-        tf::poseMsgToTF(mapOdom_data_.get()->pose.pose, mapOdomTf_);
+        // if last match succefful; not update local tf
+
+        if (!lastPublishOk_) {
+            // update local mapodomtf
+            tf::poseMsgToTF(mapOdom_data_.get()->pose.pose, mapOdomTf_);
+
+        }
+
     }
     return true;
 }
@@ -150,6 +184,7 @@ bool BoardFinder::getLaserPose() {
     // get odom to laser tf
     bool succ = l.getTransform(odom_frame_id_, laser_frame_id_, transform, laser_data_.get()->header.stamp, 0.01,
                                false);
+    // get laser pose base on mapodomtf and odomtolasertf
     if (succ) {
         tf::poseTFToMsg(mapOdomTf_ * transform, laserPose_);
         ROS_INFO_STREAM("laser pose\n " << laserPose_);
@@ -562,7 +597,8 @@ BoardFinder::findNN(vector<Position> &realPointsW, vector<Position> &realPoints,
 #endif
 }
 
-void BoardFinder::updateMapOdomTf(tf::Transform laserPose, ros::Time time) {
+// use laser pose to update mapodomtf
+void BoardFinder::updateMapOdomTf(tf::Transform laserPose) {
 
 
     updateSharedData(laserPose * baseLaserTf_.inverse() * odomBaseTf_.inverse());
@@ -665,7 +701,7 @@ void BoardFinder::computeUpdatedPose(vector<Position> realPoints, vector<Positio
 
     // get odom-baselink
 
-    updateMapOdomTf(laserPose, laser_data_.get()->header.stamp);
+    updateMapOdomTf(laserPose);
 
 
     // compute map-odom
@@ -729,9 +765,23 @@ void BoardFinder::findLocation() {
         if (!detectPoints.empty()) {
             // compute target vector
             computeUpdatedPose(realPointsW, detectPoints);
+            lastPublishOk_ = true;
 
+        } else {
+            // find no match board
+            tf::Transform transform;
+            tf::poseMsgToTF(laserPose_, transform);
+            updateMapOdomTf(transform);
+            lastPublishOk_ = false;
         }
 
+
+    } else {
+        // detect no board
+        tf::Transform transform;
+        tf::poseMsgToTF(laserPose_, transform);
+        updateMapOdomTf(transform);
+        lastPublishOk_ = false;
 
     }
 }

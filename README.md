@@ -31,4 +31,6 @@ https://github.com/jimmiebergmann/mini-yaml.git
 https://github.com/gishi523/kd-tree
 - GRANSAC
 https://github.com/drsrinathsridhar/GRANSAC.git
+- Line fitting
 http://durant35.github.io/2017/07/21/Algorithms_LeastSquaresLineFitting/
+- optim
