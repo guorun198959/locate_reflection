@@ -277,7 +277,7 @@ vector<tuple<int, int> > PatternMatcher::match(vector<Position> &obsPos, vector<
     double bestScore = 0;
     for (int i = 0; i < rootvVec.size(); i++) {
 
-        double score = (scoreMatrix.array() * rootvVec[i].assignmentMatrix.array()).sum();
+        double score = (scoreMatrix.array() * rootvVec[i].assignmentMatrix.array()).sum() / rootvVec[i].scoreVec.size();
         cout << i << " each matrix score = \n" << score << endl;
 
         if (score > bestScore) {

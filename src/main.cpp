@@ -13,6 +13,7 @@
 // for debug
 
 #include <std_srvs/Empty.h>
+#include "amcl/amcl_particles.h"
 
 template<class Vector3>
 std::pair<Vector3, Vector3> best_line_from_points(const std::vector<Vector3> &c) {
@@ -40,23 +41,15 @@ int main(int argc, char **argv) {
     ros::init(argc, argv, "start_up");
     ros::NodeHandle nh;
     ros::NodeHandle nh_private("~");
+    double rate;
+    nh_private.param("rate", rate, 5.0);
 
 
     ros::Rate(1).sleep();
 
 
-    ros::Rate r(5);
-
-    rosnode::Listener l(nh, nh_private);
-    string service = "global_localization";
-    l.createServiceClient<std_srvs::Empty>(service);
-    std_srvs::Empty srv;
-    l.callService(service, srv);
-
-    return 0;
-
-
-#if 0
+    ros::Rate r(rate);
+#if 1
     // construct a board Finder
     BoardFinder finder(nh, nh_private);
 
@@ -74,6 +67,23 @@ int main(int argc, char **argv) {
 
 
 #endif
+
+#if 0
+    rosnode::Listener l(nh, nh_private);
+    string service = "/amcl/set_particles";
+    l.createServiceClient<amcl::amcl_particles>(service);
+    amcl::amcl_particles srv;
+    l.callService(service, srv);
+    if (srv.response.success)
+        cout<<"111";
+    else
+        cout<<"2222";
+    cout<<srv.response.success<<endl;
+
+    return 0;
+#endif
+
+
 #if 0
     // create a threading
         tf::TransformBroadcaster *tfb = new tf::TransformBroadcaster();

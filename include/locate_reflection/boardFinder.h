@@ -105,6 +105,7 @@ private:
     tf::Transform odomBaseTf_;
     tf::StampedTransform mapOdomTf_;
     bool lastPublishOk_;
+    int matchNum_;
 
 
     // psrameter

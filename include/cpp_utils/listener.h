@@ -206,11 +206,12 @@ namespace rosnode {
         //call service
 
         if (servicequeue_[service_name].get()->call(srv)) {
-            ROS_INFO(" call service %s ok!", service_name.c_str());
+            ROS_INFO("node call service %s ok!", service_name.c_str());
+            return true;
         } else {
-            ROS_ERROR("Failed to call service %s", service_name.c_str());
+            ROS_ERROR("node Failed to call service %s", service_name.c_str());
+            return false;
         }
-        return true;
     }
 
 

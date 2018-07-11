@@ -12,7 +12,7 @@
 
 
 #define debug_pub true
-#define debug_bypass true
+#define debug_bypass false
 BoardFinder::BoardFinder(ros::NodeHandle nh, ros::NodeHandle nh_private) :
         nh_(nh), nh_private_(nh_private), l(nh, nh_private) {
 
@@ -34,6 +34,7 @@ BoardFinder::BoardFinder(ros::NodeHandle nh, ros::NodeHandle nh_private) :
     odomBaseTf_.setIdentity();
     getFirstmapOdomTf_ = false;
     lastPublishOk_ = false;
+    matchNum_ = 0;
 
     // create scan sub
     auto res = l.createSubcriber<sensor_msgs::LaserScan>(scan_topic_, 10);
@@ -65,7 +66,9 @@ BoardFinder::BoardFinder(ros::NodeHandle nh, ros::NodeHandle nh_private) :
 
     } catch (...) {
         printf("read %s failed!!\n", filename.c_str());
+#if debug_bypass
         exit(0);
+#endif
     }
 
     // publish point  for rviz, calibration
@@ -89,7 +92,9 @@ BoardFinder::BoardFinder(ros::NodeHandle nh, ros::NodeHandle nh_private) :
     // this topic may just publish once
     if (!getMapOdomTf(5)) {
         ROS_ERROR("not received %s;exit", odomtf_topic_.c_str());
+#if debug_bypass
         exit(0);
+#endif
     }
 
 }
@@ -116,9 +121,9 @@ bool BoardFinder::updateSensor() {
             bear_[i] = laser_data_.get()->angle_min + i * laser_data_.get()->angle_increment;
         }
     }
-    getLaserPose();
+    bool getpose = getLaserPose();
 
-    return getmsg;
+    return getmsg && getpose;
 }
 
 // get tf data
@@ -131,7 +136,7 @@ bool BoardFinder::getMapOdomTf(int sleep) {
     // wait amcl tf from the first
     // at reboot, this tf only publish once
     bool getmsg;
-    if (getresetpose) {
+    if (getresetpose || (lastPublishOk_ && matchNum_ == 0)) {
         getmsg = l.getOneMessage(odomtf_topic_, -1);
 
     } else {
@@ -166,13 +171,17 @@ bool BoardFinder::getMapOdomTf(int sleep) {
         // get tf at usual work time
         // if last match succefful; not update local tf
 
-        if (!lastPublishOk_) {
+        if (!lastPublishOk_ && getmsg) {
+            // detect fail at some condition, must reset amcl using last correct odom, and use new comming data to update local odom
             // update local mapodomtf
             tf::poseMsgToTF(mapOdom_data_.get()->pose.pose, mapOdomTf_);
 
         }
 
     }
+
+    // not recieve data?
+    ROS_INFO_STREAM("==== mapodom\n" << mapOdom_data_.get()->pose.pose);
     return true;
 }
 
@@ -246,7 +255,9 @@ bool BoardFinder::xmlToPoints(vector<Position> &pointsW) {
 
     ROS_ERROR("get yaml board Num:%d", int(param_["board_position"].Size()));
 
-    for (int it = 0; it < param_["board_position"].Size(); it++) {
+    int size = param_["board_position"].Size();
+    double start_angle = 0;
+    for (int it = 0; it < size; it++) {
 
         p.x = param_["board_position"][it]["x"].As<double>();
 
@@ -270,8 +281,17 @@ bool BoardFinder::xmlToPoints(vector<Position> &pointsW) {
 
         double boardtorobotangle = atan2(laserPose_.position.y - p.y, laserPose_.position.x - p.x);
         double robottoboardangle = atan2(p.y - laserPose_.position.y, p.x - laserPose_.position.x);
-        p.angle = normalAngle(robottoboardangle, yaw);
 
+        p.angle = normalAngle(robottoboardangle, yaw);
+#if 1
+        // fix 180 degree turing bug
+        if (it == 0) {
+            start_angle = p.angle;
+            p.angle = 0.0;
+        } else {
+            p.angle = normalAngle(p.angle, start_angle);
+        }
+#endif
 //        bool in_view = robottoboardangle > laser_data_.get()->angle_min && robottoboardangle < laser_data_.get()->angle_max;
         double direction1 = normalDiff(boardtorobotangle, p.yaw);
         double direction2 = normalDiff(robottoboardangle, yaw);
@@ -435,18 +455,13 @@ vector<Position> BoardFinder::detectBoard() {
                 // angle shoud point to robot
                 double angletorobot = atan2(-center_y, -center_x);
 
-                double minangle = 20;
-                double tmpangle = angle;
+                if (normalDiff(angletorobot, angle + 0.5 * M_PI) < normalDiff(angletorobot, angle - 0.5 * M_PI)) {
+                    angle += 0.5 * M_PI;
+                } else {
+                    angle -= 0.5 * M_PI;
 
-                for (int c = 0; c < 2; c++) {
-                    cout << angle;
-                    if (normalDiff(angletorobot, (angle + ((c > 0) ? 1 : -1) * 0.5 * M_PI)) < minangle) {
-                        tmpangle = angle + ((c > 0) ? 1 : -1) * 0.5 * M_PI;
-                        minangle = normalDiff(angletorobot, tmpangle);
-
-                    }
                 }
-                angle = tmpangle;
+
                 p.x = center_x;
                 p.y = center_y;
                 p.yaw = angle;
@@ -608,6 +623,8 @@ BoardFinder::findNN(vector<Position> &realPointsW, vector<Position> &realPoints,
 
 // use laser pose to update mapodomtf
 void BoardFinder::updateMapOdomTf(tf::Transform laserPose) {
+    geometry_msgs::Pose debug_pose;
+    tf::poseTFToMsg(laserPose, debug_pose);
 
 
     updateSharedData(laserPose * baseLaserTf_.inverse() * odomBaseTf_.inverse());
@@ -635,7 +652,8 @@ void BoardFinder::updateSharedData(tf::Transform mapTOodomTf) {
 
 
     // segementation  fault: use shared ptr before initialise
-    std::swap(*mapToodomtfPtr_, mapOdomTf_);
+    tf::StampedTransform tmp(mapOdomTf_);
+    std::swap(*mapToodomtfPtr_, tmp);
 
     // if thread is not running ; start running
     if (!threadClass_.isRunning()) {
@@ -759,7 +777,7 @@ bool BoardFinder::resetAmcl() {
             (0)(0)(0)(0)(0)(0)
             (0)(0)(0)(0)(0)(yaw_cov);
 #endif
-    srv.request.initial_pose.header.stamp = ros::Time::now();
+    srv.request.initial_pose.header.stamp = laser_data_.get()->header.stamp;
     srv.request.initial_pose.header.frame_id = "map";
     srv.request.initial_pose.pose = initial_pose;
 
@@ -768,9 +786,9 @@ bool BoardFinder::resetAmcl() {
 
 
     if (l.callService(set_particles_service_name_, srv)) {
-        ROS_INFO(" call service ok!: %ld", (long int) srv.response.success);
+        ROS_INFO("locate call service ok!: %ld", (long int) srv.response.success);
     } else {
-        ROS_ERROR("Failed to call service set_filter");
+        ROS_ERROR("locate Failed to call service set_filter");
     }
 
     return true;
@@ -833,7 +851,19 @@ void BoardFinder::findLocation() {
         if (!detectPoints.empty()) {
             // compute target vector
             computeUpdatedPose(realPointsW, detectPoints);
-            resetAmcl();
+#if 1
+            int resetDuration_ = param_["resetDuration"].As<int>(5);
+
+            if (matchNum_ % resetDuration_ == 0) {
+                resetAmcl();
+
+                if (matchNum_ > 0) {
+                    matchNum_ = 0;
+                }
+            }
+            matchNum_++;
+
+#endif
             lastPublishOk_ = true;
 
         } else {

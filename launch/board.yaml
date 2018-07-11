@@ -2,8 +2,8 @@ version : 0.1
 visibel_angle: 1.23
 visibel_range_ratio: 0.8
 intensity_thresh: 600
-neighbor_thresh: 20
-length_thresh: 0.02
+neighbor_thresh: 10
+length_thresh: 0.1
 radius: 0.3
 distScoreBase: 0.1
 angleScoreBase: 0.1
@@ -15,7 +15,7 @@ query_radius: 1.5
 x_cov: 0.05
 y_cov: 0.05
 yaw_cov: 0.03
-
+resetDuration: 3
 board_position:
   - x: -21.5
     y: 15.9
