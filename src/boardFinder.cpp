@@ -10,11 +10,12 @@
 #include <boost/assign.hpp>
 #include <opencv2/opencv.hpp>
 
-
+#define log_lv1  false
 #define debug_pub true
 #define debug_bypass false
 BoardFinder::BoardFinder(ros::NodeHandle nh, ros::NodeHandle nh_private) :
         nh_(nh), nh_private_(nh_private), l(nh, nh_private) {
+    initParams();
 
     // **** parameter
     // topic
@@ -34,7 +35,8 @@ BoardFinder::BoardFinder(ros::NodeHandle nh, ros::NodeHandle nh_private) :
     odomBaseTf_.setIdentity();
     getFirstmapOdomTf_ = false;
     lastPublishOk_ = false;
-    matchNum_ = 0;
+    matchNum_ = 1;
+    detectOne_ = false;
 
     // create scan sub
     auto res = l.createSubcriber<sensor_msgs::LaserScan>(scan_topic_, 10);
@@ -103,10 +105,29 @@ BoardFinder::~BoardFinder() {
     delete tfb_;
 }
 
+void BoardFinder::initParams() {
+    string filename = "board.yaml";
+    Yaml::Node param_;
+    try {
+        param_ = Yaml::readFile(filename);
+
+    } catch (...) {
+        printf("read %s failed!!\n", filename.c_str());
+        exit(0);
+    }
+    radius_ = param_["radius"].As<double>(0.1);
+    distScoreBase_ = param_["distScoreBase"].As<double>(0.1);
+    angleScoreBase_ = param_["angleScoreBase"].As<double>(0.1);
+    distRatio_ = param_["distRatio"].As<double>(2);
+    angleRatio_ = param_["angleRatio"].As<double>(6);
+    matchScore_ = param_["matchScore"].As<double>(1.1);
+    finalScore_ = param_["finalScore"].As<double>(1.1);
+}
+
 // get intialpose
 // we only know it's seted, and wait for new amcl_tf
 bool BoardFinder::getInitialpose() {
-    bool getmsg = l.getOneMessage(initialpose_topic_, 0.1);
+    bool getmsg = l.getOneMessage(initialpose_topic_, 0.01);
     return getmsg;
 }
 
@@ -128,7 +149,7 @@ bool BoardFinder::updateSensor() {
 
 // get tf data
 // if no data return false;
-bool BoardFinder::getMapOdomTf(int sleep) {
+bool BoardFinder::getMapOdomTf(double sleep) {
 
     // check if get initialpose
 
@@ -136,13 +157,18 @@ bool BoardFinder::getMapOdomTf(int sleep) {
     // wait amcl tf from the first
     // at reboot, this tf only publish once
     bool getmsg;
-    if (getresetpose || (lastPublishOk_ && matchNum_ == 0)) {
+    if (getresetpose) {
         getmsg = l.getOneMessage(odomtf_topic_, -1);
 
     } else {
         getmsg = l.getOneMessage(odomtf_topic_, sleep);
 
     };
+    if (lastPublishOk_ && matchNum_ == 0) {
+        if (!getmsg) {
+            return false;
+        }
+    }
 
     // todo:baypass
 #if debug_bypass
@@ -181,15 +207,19 @@ bool BoardFinder::getMapOdomTf(int sleep) {
     }
 
     // not recieve data?
+#if log_lv1
     ROS_INFO_STREAM("==== mapodom\n" << mapOdom_data_.get()->pose.pose);
+#endif
     return true;
 }
 
 // get laser pose
 // store to laserPose_
 bool BoardFinder::getLaserPose() {
+#if log_lv1
 
     ROS_INFO("getLaserPose start tf");
+#endif
     if (!getMapOdomTf()) {
         ROS_INFO("no amcl tf ;skip");
         return false;
@@ -205,7 +235,10 @@ bool BoardFinder::getLaserPose() {
     // get laser pose base on mapodomtf and odomtolasertf
     if (succ) {
         tf::poseTFToMsg(mapOdomTf_ * transform, laserPose_);
+#if log_lv1
+
         ROS_INFO_STREAM("laser pose\n " << laserPose_);
+#endif
     }
     // get odom to base tf
     bool succ2 = l.getTransform(odom_frame_id_, base_frame_id_, odomBaseTf_, laser_data_.get()->header.stamp, 0.01,
@@ -271,9 +304,11 @@ bool BoardFinder::xmlToPoints(vector<Position> &pointsW) {
 
         // check visibility
         double yaw = tf::getYaw(laserPose_.orientation);
+#if log_lv1
+
         ROS_INFO("board %.3f,%.3f,%.3f,%.3f,%.3f,%.3f", p.x, p.y, p.yaw, laserPose_.position.x, laserPose_.position.y,
                  yaw);
-
+#endif
         double distance = sqrt(pow(laserPose_.position.x - p.x, 2) +
                                pow(laserPose_.position.y - p.y, 2));
         if (distance > visibel_range_ratio * laser_data_.get()->range_max && distance < 0.1)
@@ -297,11 +332,12 @@ bool BoardFinder::xmlToPoints(vector<Position> &pointsW) {
         double direction2 = normalDiff(robottoboardangle, yaw);
         bool condition2 = direction2 > laser_data_.get()->angle_min && direction2 < laser_data_.get()->angle_max;
         bool condition1 = direction1 < visibel_angle;
+#if log_lv1
 
         ROS_INFO("data inrange,%.3f,%.3f,%.3f,%.3f", robottoboardangle, boardtorobotangle, direction1, direction2);
         ROS_INFO("limit: visibel_angle=%.3f,angle_min=%.3f,angle_max=%.3f", visibel_angle, laser_data_.get()->angle_min,
                  laser_data_.get()->angle_max);
-
+#endif
 
         if (condition1 && condition2) {
             pointsW.push_back(p);
@@ -331,6 +367,11 @@ bool BoardFinder::xmlToPoints(vector<Position> &pointsW) {
     // sort points
     std::sort(pointsW.begin(), pointsW.end(), angleCompare);
 
+    for (int i = 0; i < pointsW.size(); i++) {
+        printf("get board in map [%.3f,%.3f,%.3f]", pointsW[i].x, pointsW[i].y, pointsW[i].yaw);
+        std::cout << std::endl;
+    }
+
     return true;
 
 }
@@ -340,15 +381,25 @@ vector<Position> BoardFinder::detectBoard() {
     // upddate sensor
     vector<Position> ps;
 
-    ROS_INFO("start scan");
+#if 0
+    if (!updateSensor()) {
 
+        ROS_INFO("No laser, skip!!");
+        return ps;
+    }
+#endif
+#if log_lv1
+
+    ROS_INFO("start scan");
+#endif
     // vector to valarray
     valarray<float> ranges = container::createValarrayFromVector<float>(laser_data_.get()->ranges);
     valarray<float> intensities = container::createValarrayFromVector<float>(laser_data_.get()->intensities);
     if (intensities.size() == 0) {
         ROS_ERROR("scan has no intensities ");
-        return ps;
         exit(0);
+        return ps;
+
     }
 
     valarray<float> xs = ranges * cos(bear_);
@@ -369,8 +420,10 @@ vector<Position> BoardFinder::detectBoard() {
 
     size_t size = lightXs.size();
     if (size == 0) {
+#if log_lv1
 
         ROS_ERROR("no light point");
+#endif
         return ps;
 
     }
@@ -411,10 +464,11 @@ vector<Position> BoardFinder::detectBoard() {
             pointNum++;
         }
         if (d > thresh || (i == distance.size() - 1 && d < thresh)) {
-
+#if 1
             if (i == distance.size() - 1) {
                 i++;
             }
+#endif
             double length = sqrt(
                     pow(lightXs[i] - lightXs[i - pointNum], 2) + pow(lightYs[i] - lightYs[i - pointNum], 2));
             //compute length
@@ -426,7 +480,7 @@ vector<Position> BoardFinder::detectBoard() {
                 // push light point to vector
                 // fit line
                 vector<cv::Point2d> FitPoints;
-                for (size_t it = i - pointNum; it < i + 1; it++) {
+                for (size_t it = i - pointNum; it < i; it++) {
                     idx_vec.push_back(it);
                     lightpose.position.x = lightXs[it];
                     lightpose.position.y = lightYs[it];
@@ -455,6 +509,9 @@ vector<Position> BoardFinder::detectBoard() {
                 // angle shoud point to robot
                 double angletorobot = atan2(-center_y, -center_x);
 
+                double board_length = sqrt(pow(cluster_x[0] - cluster_x[cluster_x.size() - 1], 2) +
+                                           pow(cluster_y[0] - cluster_y[cluster_y.size() - 1], 2));
+
                 if (normalDiff(angletorobot, angle + 0.5 * M_PI) < normalDiff(angletorobot, angle - 0.5 * M_PI)) {
                     angle += 0.5 * M_PI;
                 } else {
@@ -465,9 +522,11 @@ vector<Position> BoardFinder::detectBoard() {
                 p.x = center_x;
                 p.y = center_y;
                 p.yaw = angle;
+                p.length = board_length;
 
                 ps.push_back(p);
-                cout << "x" << p.x << "y" << p.y << "angle" << p.yaw << "length:" << length << std::endl;
+                // length > 8m?
+                cout << "x" << p.x << "y" << p.y << "angle" << p.yaw << "length:" << p.length << std::endl;
 
 
                 pose.position.x = p.x;
@@ -483,8 +542,10 @@ vector<Position> BoardFinder::detectBoard() {
     }
 
     cout << "get board num " << ps.size();
-    ROS_INFO("finish scan");
+#if log_lv1
 
+    ROS_INFO("finish scan");
+#endif
 #if debug_pub
     boardPub.publish(msg);
     pointPub.publish(lightpoints);
@@ -526,9 +587,181 @@ bool BoardFinder::transformPoints(vector<Position> &realPoints) {
     return true;
 }
 
+vector<tuple<int, int> > BoardFinder::kdTreeMatch(vector<Position> detectPoints, vector<Position> realPoints) {
+
+    vector<tuple<int, int> > assignments;
+    assignments.clear();
+
+#if 1
+    if (detectPoints.size() == 1)
+        return assignments;
+#endif
+
+    // create kd tree
+    // search
+    // create kdtree
+    const int npoints = realPoints.size();
+    std::vector<kdtree::Point2d> points;
+    for (int i = 0; i < npoints; i++) {
+        points.push_back(kdtree::Point2d(realPoints[i].x, realPoints[i].y));
+    }
+
+
+
+    // add zero point
+    detectPoints.push_back(Position(0, 0, 0, 0, 0));
+    points.push_back(kdtree::Point2d(0.0, 0.0));
+
+
+    // build k-d tree
+    kdtree::KdTree<kdtree::Point2d> kdtree(points);
+
+    double radius = param_["query_radius"].As<double>();;
+    // query point
+    vector<vector<int> > results;
+    for (int i = 0; i < detectPoints.size(); i++) {
+        // create query point
+        //search
+        vector<int> res;
+
+
+        kdtree::Point2d query(detectPoints[i].x, detectPoints[i].y);
+        res = kdtree.queryIndex(query, kdtree::SearchMode::radius, radius);
+
+        results.push_back(res);
+    }
+
+    if (results.empty()) {
+        return assignments;
+    }
+
+    double score_thresh_ = 1.1;
+    double final_score_thresh_ = 0.9;
+    // add pattern match
+    // 1 ============
+
+    for (int i = 0; i < detectPoints.size() - 1; i++) {
+        if (!results[i].empty()) {
+
+            // for each point in result i
+            int best_id_i = 0;
+            int best_match_i = 0;
+            double best_score_i = 0.0;
+
+            // 2 ============
+
+            for (int m = 0; m < results[i].size(); m++) {
+
+                double score_i = 0;
+                int match_j = 0;
+
+
+
+                // check all other result
+                // get i's point to other result's point with least error
+                // get error < thresh
+                // get mean least error
+                // 3 ============
+
+                for (int j = 0; j < results.size(); j++) {
+                    // skip empty and j=i
+                    if (j == i)
+                        continue;
+
+                    double best_score_j = 0.0;
+                    if (!results[j].empty()) {
+                        //for each point in result[j]
+                        // 4 ============
+
+                        for (int k = 0; k < results[j].size(); k++) {
+                            // skip same point
+                            if (results[i][m] == results[j][k])
+                                continue;
+
+                            // compute distance diff and angle diff between
+                            double score_j;
+                            double distDiff = fabs(sqrt(pow(detectPoints[i].x - detectPoints[j].x, 2) +
+                                                        pow(detectPoints[i].y - detectPoints[j].y, 2)) -
+                                                   sqrt(pow(realPoints[results[i][m]].x - realPoints[results[j][k]].x,
+                                                            2) +
+                                                        pow(realPoints[results[i][m]].y - realPoints[results[j][k]].y,
+                                                            2)));
+
+                            double angleDiff = normalDiff(
+                                    atan2(detectPoints[i].y - detectPoints[j].y, detectPoints[i].x - detectPoints[j].x),
+                                    atan2(realPoints[results[i][m]].y - realPoints[results[j][k]].y,
+                                          realPoints[results[i][m]].x - realPoints[results[j][k]].x));
+
+                            double distscore = scoreFunc(distDiff, distScoreBase_, distRatio_);
+                            double anglescore = scoreFunc(angleDiff, angleScoreBase_, angleRatio_);
+                            score_j = distscore + anglescore;
+
+                            // comupte score
+                            printf("score [%d,%d,%d,%d], %f , %f \n", i, m, j, k, distscore, anglescore);
+                            std::cout << std::endl;
+
+                            // update best_score_j
+                            if (score_j > best_score_j && score_j > score_thresh_) {
+                                best_score_j = score_j;
+                            }
+
+
+                        }
+                        //end loop
+
+                        // update
+                        if (best_score_j > score_thresh_) {
+                            score_i += best_score_j;
+                            match_j++;
+                        }
+
+
+                    }
+                }
+                if (match_j > 0) {
+                    score_i /= match_j;
+                    // end loop m
+                    // update best_score_i
+
+                    if (score_i > best_score_i) {
+                        best_score_i = score_i;
+                        best_id_i = m;
+                    }
+                }
+
+
+            }
+            // ==== ok
+            // end loop i : ok
+            // update assignment
+            if (best_score_i > final_score_thresh_) {
+
+                tuple<int, int> point_assign = std::make_tuple(i, results[i][best_id_i]);
+                printf("pair [%d,%d]\n", i, results[i][best_id_i]);
+                std::cout << std::endl;
+//
+                assignments.push_back(point_assign);
+            } else {
+                // clear
+                results[i].clear();
+            }
+
+
+//            assignments.push_back(std::make_tuple(i,i));
+        }
+
+
+    }
+    return assignments;
+}
 
 bool
 BoardFinder::findNN(vector<Position> &realPointsW, vector<Position> &realPoints, vector<Position> &detectPoints) {
+
+    // todo: reform sort mathod;
+    // first find nearest points within radius
+    // for those can't tell aprt from kdtree search, use pattern match
+
 
 
     // if point Num >=2
@@ -537,11 +770,59 @@ BoardFinder::findNN(vector<Position> &realPointsW, vector<Position> &realPoints,
     // use kdtree search
 
     vector<Position> realPointReg, detecctPointReg;
+    vector<tuple<int, int> > assign;
+
+
+    // search with kd tree search
+    // remove points which is well matched; which is one to one match
+
+    // match reamined points
+#if 1
+    assign = kdTreeMatch(detectPoints, realPoints);
+    if (assign.empty()) {
+
+        cout << "match failure!!" << endl;
+        realPointsW = realPointReg;
+        detectPoints = detecctPointReg;
+        return false;
+
+    }
+    for (int i = 0; i < assign.size(); i++) {
+        realPointReg.push_back(realPointsW[std::get<1>(assign[i])]);
+        detecctPointReg.push_back(detectPoints[std::get<0>(assign[i])]);
+    }
+    realPointsW = realPointReg;
+    detectPoints = detecctPointReg;
+
+#if 1
+    for (int i = 0; i < realPointsW.size(); i++) {
+        printf("realw--real--detect = \n[%.3f,%.3f] <-[%.3f,%.3f]-> [%.3f,%.3f]", realPointsW[i].x, realPointsW[i].y,
+               realPoints[std::get<1>(assign[i])].x, realPoints[std::get<1>(assign[i])].y, detectPoints[i].x,
+               detectPoints[i].y);
+
+        std::cout << std::endl;
+    }
+#endif
+
+    return true;
+#endif
+#if 0
+    // how to sort with assigment
+    // select fisr match point as start angle , sort
+    if (!assign.empty() || (assign.size() ==1 && detectOne_)){
+
+    }
+
+    // send last assignment to match function
+    assign = patternMatcher.match(detectPoints, realPoints);
+
+
+
 
     if (detectPoints.size() > 1) {
         // call pattern match
         // how to detect failure
-        auto assign = patternMatcher.match(detectPoints, realPoints);
+        assign = patternMatcher.match(detectPoints, realPoints);
         if (assign.empty()) {
 
             cout << "match failure!!" << endl;
@@ -561,44 +842,13 @@ BoardFinder::findNN(vector<Position> &realPointsW, vector<Position> &realPoints,
         return true;
     } else {
 
-        // create kd tree
-        // search
-        // create kdtree
-        const int npoints = realPoints.size();
-        std::vector<kdtree::Point2d> points(npoints);
-        for (int i = 0; i < npoints; i++) {
-            points[i] = kdtree::Point2d(realPoints[i].x, realPoints[i].y);
-        }
-
-
-        // build k-d tree
-        kdtree::KdTree<kdtree::Point2d> kdtree(points);
-
-        double radius = param_["query_radius"].As<double>();;
-        // query point
-        vector<vector<int> > results;
-        for (int i = 0; i < detectPoints.size(); i++) {
-            // create query point
-            //search
-            vector<int> res;
-
-
-            kdtree::Point2d query(detectPoints[i].x, detectPoints[i].y);
-            res = kdtree.queryIndex(query, kdtree::SearchMode::radius, radius);
-
-            results.push_back(res);
-        }
-
-        if (results.empty()) {
+        if (!detectOne_){
+            // todo: bypass oneboard
             return false;
         }
-        for (int i = 0; i < results.size(); i++) {
-            if (!results[i].empty()) {
 
-                detecctPointReg.push_back(detectPoints[i]);
-                realPointReg.push_back(realPointsW[results[i][0]]);
-            }
-        }
+
+
 
         realPointsW = realPointReg;
         detectPoints = detecctPointReg;
@@ -614,11 +864,8 @@ BoardFinder::findNN(vector<Position> &realPointsW, vector<Position> &realPoints,
         // clear and check distancce  and sort vector
 
     }
-
-#if 0
-
-
 #endif
+
 }
 
 // use laser pose to update mapodomtf
@@ -648,8 +895,10 @@ void BoardFinder::updateSharedData(tf::Transform mapTOodomTf) {
 
     geometry_msgs::Pose debug_odom;
     tf::poseTFToMsg(mapOdomTf_, debug_odom);
-    ROS_ERROR_STREAM("update odom \n" << debug_odom);
+#if log_lv1
 
+    ROS_ERROR_STREAM("update odom \n" << debug_odom);
+#endif
 
     // segementation  fault: use shared ptr before initialise
     tf::StampedTransform tmp(mapOdomTf_);
@@ -717,8 +966,10 @@ void BoardFinder::computeUpdatedPose(vector<Position> realPoints, vector<Positio
 
     geometry_msgs::Pose debug_pose;
     tf::poseTFToMsg(laserPose, debug_pose);
-    ROS_ERROR_STREAM("laser pose \n" << debug_pose);
+#if log_lv1
 
+    ROS_ERROR_STREAM("laser pose \n" << debug_pose);
+#endif
 
 
 
@@ -781,9 +1032,10 @@ bool BoardFinder::resetAmcl() {
     srv.request.initial_pose.header.frame_id = "map";
     srv.request.initial_pose.pose = initial_pose;
 
+#if log_lv1
 
     ROS_INFO("set filter cnt: %d", int(srv.request.pose_array_msg.poses.size()));
-
+#endif
 
     if (l.callService(set_particles_service_name_, srv)) {
         ROS_INFO("locate call service ok!: %ld", (long int) srv.response.success);
@@ -842,13 +1094,13 @@ void BoardFinder::findLocation() {
     if (!realPoints.empty() && !detectPoints.empty()) {
 
         // find matched pattern
-        findNN(realPointsW, realPoints, detectPoints);
+        bool match = findNN(realPointsW, realPoints, detectPoints);
 
         // if detect more board
         // 1 board: compute with position and yaw
         // 2 and more , compute with relative position of betwwen board
 
-        if (!detectPoints.empty()) {
+        if (match) {
             // compute target vector
             computeUpdatedPose(realPointsW, detectPoints);
 #if 1

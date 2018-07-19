@@ -118,6 +118,18 @@ private:
     string laser_frame_id_;
     string fixed_frame_id_;
 
+    // match param
+    // parameter
+    double radius_;
+    double distScoreBase_;
+    double angleScoreBase_;
+    double distRatio_;
+    double angleRatio_;
+    double matchScore_;
+    double finalScore_;
+
+    bool detectOne_;
+
     // read config file
     Yaml::Node param_;
 
@@ -130,6 +142,7 @@ private:
     std::shared_ptr<tf::StampedTransform> mapToodomtfPtr_;
 
     // ***** method
+    void initParams();
     // get laser pose
     // store to laserPose_
     bool getLaserPose();
@@ -140,7 +153,7 @@ private:
     bool getFirstmapOdomTf_;
 
     // get tf from topic
-    bool getMapOdomTf(int sleep = 0.1);
+    bool getMapOdomTf(double sleep = 0.01);
     void updateSharedData(tf::Transform mapTOodomTf);
 
     void updateMapOdomTf(tf::Transform laserPose);
@@ -161,6 +174,7 @@ private:
     // match realboard and detect board
     bool findNN(vector<Position> &realPointsW, vector<Position> &realPoints, vector<Position> &detectPoints);
 
+
     // compute real and detect pose
     // get pose chane to calibrate mapodom
     void computeUpdatedPose(vector<Position> realPoints, vector<Position> detectPoints);
@@ -174,6 +188,7 @@ private:
 
 
 public:
+    vector<tuple<int, int> > kdTreeMatch(vector<Position> obsPos, vector<Position> mapPos);
 
     BoardFinder(ros::NodeHandle nh, ros::NodeHandle nh_private);
 

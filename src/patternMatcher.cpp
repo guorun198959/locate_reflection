@@ -241,6 +241,8 @@ vector<tuple<int, int> > PatternMatcher::match(vector<Position> &obsPos, vector<
         // if obsnum = 2
         // add origin point to it and compute matrix distance
         // get matrix
+
+        // todo: fix this score funcction
         MatrixXf originPoint(1, 2);
         originPoint << 0.0, 0.0;
         double distDiff = fabs(PointObs.row(obsL).norm() + PointObs.row(obsR).norm() -

@@ -28,7 +28,7 @@ namespace tf_util {
             q.normalize();
 
 
-            ROS_INFO_STREAM(q);  // Print the quaternion components (0,0,0,1)
+//            ROS_INFO_STREAM(q);  // Print the quaternion components (0,0,0,1)
             return q;
 
         }
@@ -78,7 +78,7 @@ namespace tf_util {
                     ros::Time time, double sleep_duration = 0.1, bool block = false) {
             tf::StampedTransform transform_stamped;
 
-            ROS_INFO("lookupTransform start tf");
+//            ROS_INFO("lookupTransform start tf");
 
             while (ros::ok()){
                 try {
@@ -96,7 +96,7 @@ namespace tf_util {
                         return false;
                 }
             }
-            ROS_INFO("lookupTransform done tf");
+//            ROS_INFO("lookupTransform done tf");
 
             // normalize
             tf::Quaternion q(transform_stamped.getRotation());
@@ -228,7 +228,7 @@ namespace tf_util {
                         return false;
                 }
             }
-            ROS_INFO("lookupTransform done tf");
+//            ROS_INFO("lookupTransform done tf");
 
             // normalize
 

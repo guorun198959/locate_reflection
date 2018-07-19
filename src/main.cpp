@@ -49,12 +49,30 @@ int main(int argc, char **argv) {
 
 
     ros::Rate r(rate);
-#if 1
+
     // construct a board Finder
     BoardFinder finder(nh, nh_private);
+#if 0
 
-    ros::Rate(1).sleep();
+    vector<Position> p1, p2;
+    p1.push_back(Position(1,2,3.3,1,1));
+#if 1
+    p1.push_back(Position(-1,2,3.3,1,1));
+    p1.push_back(Position(1.5,1.5,3.3,1,1));
+    p1.push_back(Position(3,1,3.3,1,1));
+#endif
 
+
+
+    p2.push_back(Position(-3.1, 1.9,3.3,1,1));
+    p2.push_back(Position( -1.1, 1.9,3.3,1,1));
+    p2.push_back(Position( 0.9, 1.9,3.3,1,1));
+    p2.push_back(Position(1.4, 1.4,3.3,1,1));
+    finder.kdTreeMatch(p1,p2);
+
+//    ros::Rate(1).sleep();
+#endif
+#if 1
     while (ros::ok()) {
         // detect board; ok
 //        finder.detectBoard();
@@ -62,6 +80,8 @@ int main(int argc, char **argv) {
 //        finder.getBoardPosition();
         // find location
         finder.findLocation();
+        // kdtree match
+
         r.sleep();
     }
 

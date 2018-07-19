@@ -271,12 +271,12 @@ namespace rosnode {
             while (ros::ok() && !updated_) {
                 callbackqueue_[topic].get()->callAvailable(ros::WallDuration(0.1));
                 ros::Rate(100);
-                ROS_ERROR("get data");
+//                ROS_ERROR("get data");
             }
 
 
         }
-        ROS_ERROR("get data done ");
+//        ROS_ERROR("get data done ");
 
         return true;
     }
