@@ -9,8 +9,8 @@ distScoreBase: 0.1
 angleScoreBase: 0.1
 distRatio: 2
 angleRatio: 6
-matchScore: 1.0
-finalScore: 0.6
+matchScore: 1.1
+finalScore: 0.8
 query_radius: 1.5
 x_cov: 0.05
 y_cov: 0.05

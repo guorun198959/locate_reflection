@@ -37,6 +37,7 @@ BoardFinder::BoardFinder(ros::NodeHandle nh, ros::NodeHandle nh_private) :
     lastPublishOk_ = false;
     matchNum_ = 1;
     detectOne_ = false;
+    getresetpose_ = false;
 
     // create scan sub
     auto res = l.createSubcriber<sensor_msgs::LaserScan>(scan_topic_, 10);
@@ -153,11 +154,11 @@ bool BoardFinder::getMapOdomTf(double sleep) {
 
     // check if get initialpose
 
-    bool getresetpose = getInitialpose();
+    getresetpose_ = getInitialpose();
     // wait amcl tf from the first
     // at reboot, this tf only publish once
     bool getmsg;
-    if (getresetpose) {
+    if (getresetpose_) {
         getmsg = l.getOneMessage(odomtf_topic_, -1);
 
     } else {
@@ -170,20 +171,8 @@ bool BoardFinder::getMapOdomTf(double sleep) {
         }
     }
 
-    // todo:baypass
-#if debug_bypass
-    if (!getFirstmapOdomTf_) {
-        mapOdomTf_.setOrigin(tf::Vector3(-18.659, 13.62, 0.0));
-        mapOdomTf_.setRotation(tf::Quaternion(0.0, 0.0, -0.64837, 0.76133));
-        geometry_msgs::Pose pose;
-        tf::poseTFToMsg(mapOdomTf_, pose);
-        mapOdom_data_.get()->pose.pose = pose;
-        getmsg = true;
-    }
 
-#endif
-
-    if (!getFirstmapOdomTf_ || getresetpose) {
+    if (!getFirstmapOdomTf_ || getresetpose_) {
         if (!getmsg) {
             return false;
         } else {
@@ -200,6 +189,8 @@ bool BoardFinder::getMapOdomTf(double sleep) {
         if (!lastPublishOk_ && getmsg) {
             // detect fail at some condition, must reset amcl using last correct odom, and use new comming data to update local odom
             // update local mapodomtf
+            geometry_msgs::Pose debug_pose;
+            debug_pose = mapOdom_data_.get()->pose.pose;
             tf::poseMsgToTF(mapOdom_data_.get()->pose.pose, mapOdomTf_);
 
         }
@@ -216,38 +207,65 @@ bool BoardFinder::getMapOdomTf(double sleep) {
 // get laser pose
 // store to laserPose_
 bool BoardFinder::getLaserPose() {
+    if (baseLaserTf_.getOrigin().getX() == 0.0)
+        l.getTransform(base_frame_id_, laser_frame_id_, baseLaserTf_, laser_data_.get()->header.stamp, 0.1, true);
 #if log_lv1
 
     ROS_INFO("getLaserPose start tf");
 #endif
-    if (!getMapOdomTf()) {
+    if (!getMapOdomTf(0.05)) {
         ROS_INFO("no amcl tf ;skip");
         return false;
     }
 //    l.getOneMessage("scan",-1);
+#if 0
     tf::Transform transform;
 
     transform.setIdentity();
-
+#endif
     // get odom to laser tf
-    bool succ = l.getTransform(odom_frame_id_, laser_frame_id_, transform, laser_data_.get()->header.stamp, 0.01,
+    bool succ = l.getTransform(odom_frame_id_, base_frame_id_, odomBaseTf_, laser_data_.get()->header.stamp, 0.05,
                                false);
     // get laser pose base on mapodomtf and odomtolasertf
     if (succ) {
-        tf::poseTFToMsg(mapOdomTf_ * transform, laserPose_);
+        geometry_msgs::Pose laserPose;
+        tf::poseTFToMsg(mapOdomTf_ * odomBaseTf_ * baseLaserTf_, laserPose);
+        // get invalid data? from which source
+        geometry_msgs::Pose p1, p2, p3;
+        tf::poseTFToMsg(mapOdomTf_, p1);
+        tf::poseTFToMsg(odomBaseTf_, p2);
+        tf::poseTFToMsg(baseLaserTf_, p3);
+        ROS_ERROR_STREAM("mapOdomTf_\n" << p1);
+        ROS_ERROR_STREAM("odomBaseTf_\n" << p2);
+        ROS_ERROR_STREAM("baseLaserTf_\n" << p3);
+        ROS_ERROR_STREAM("laserPose\n" << laserPose);
+
+        // todo:debug update laser pose
+        if (getresetpose_) {
+            getresetpose_ = false;
+        }
+#if 0
+        if(laserPose.position.x>17.5 || laserPose.position.x<16.5){
+            ROS_ERROR_STREAM("exit at last laserPose\n"<<laserPose_);
+
+            exit(0);
+        }
+#endif
+        laserPose_ = laserPose;
+
 #if log_lv1
 
         ROS_INFO_STREAM("laser pose\n " << laserPose_);
 #endif
     }
     // get odom to base tf
+#if 0
     bool succ2 = l.getTransform(odom_frame_id_, base_frame_id_, odomBaseTf_, laser_data_.get()->header.stamp, 0.01,
                                 false);
+#endif
 
-    if (baseLaserTf_.getOrigin().getX() == 0.0)
-        l.getTransform(base_frame_id_, laser_frame_id_, baseLaserTf_, laser_data_.get()->header.stamp);
 
-    return succ && succ2;
+    return succ;
 }
 
 bool BoardFinder::getBoardPosition(vector<Position> &pointsW, vector<Position> &points) {
@@ -436,6 +454,8 @@ vector<Position> BoardFinder::detectBoard() {
 
     valarray<float> distance = sqrt(pow(lightXsR - lightXsL, 2) + pow(lightYsR - lightYsL, 2));
 
+    valarray<float> rangesMaskL = rangesMask[std::slice(0, size - 1, 1)];
+
 
 //    for (int i =0;i< distance.size();i++)
 //        cout<<distance[i]<<",";
@@ -453,8 +473,36 @@ vector<Position> BoardFinder::detectBoard() {
     lightpoints.header.frame_id = "laser";
     geometry_msgs::Pose pose, lightpose;
 
+    // fix: board at -180degree, mistaking split board
 
-    for (int i = 0; i < distance.size(); i++) {
+    int start_idx = 0;
+    int sz = distance.size();
+    double dist_max = distance.max();
+
+    if (dist_max > 0.1) {
+        for (start_idx = 0; start_idx < sz; start_idx++) {
+            if (distance[start_idx] == distance.max()) {
+                break;
+            }
+        }
+        // cshift array
+        lightXs = lightXs.cshift(start_idx + 1);
+        lightYs = lightYs.cshift(start_idx + 1);
+        rangesMask = rangesMask.cshift(start_idx + 1);
+
+
+        // recompute distance
+        lightXsL = lightXs[std::slice(0, size - 1, 1)];
+        lightXsR = lightXs[std::slice(1, size - 1, 1)];
+
+        lightYsL = lightYs[std::slice(0, size - 1, 1)];
+        lightYsR = lightYs[std::slice(1, size - 1, 1)];
+
+        distance = sqrt(pow(lightXsR - lightXsL, 2) + pow(lightYsR - lightYsL, 2));
+    }
+
+
+    for (int i = 0; i < sz; i++) {
         double thresh = neighbor_thresh * rangesMask[i];
 //        thresh = 0.5;
 
@@ -592,10 +640,7 @@ vector<tuple<int, int> > BoardFinder::kdTreeMatch(vector<Position> detectPoints,
     vector<tuple<int, int> > assignments;
     assignments.clear();
 
-#if 1
-    if (detectPoints.size() == 1)
-        return assignments;
-#endif
+
 
     // create kd tree
     // search
@@ -635,8 +680,6 @@ vector<tuple<int, int> > BoardFinder::kdTreeMatch(vector<Position> detectPoints,
         return assignments;
     }
 
-    double score_thresh_ = 1.1;
-    double final_score_thresh_ = 0.9;
     // add pattern match
     // 1 ============
 
@@ -696,12 +739,13 @@ vector<tuple<int, int> > BoardFinder::kdTreeMatch(vector<Position> detectPoints,
                             double anglescore = scoreFunc(angleDiff, angleScoreBase_, angleRatio_);
                             score_j = distscore + anglescore;
 
+#if log_lv1
                             // comupte score
                             printf("score [%d,%d,%d,%d], %f , %f \n", i, m, j, k, distscore, anglescore);
                             std::cout << std::endl;
-
+#endif
                             // update best_score_j
-                            if (score_j > best_score_j && score_j > score_thresh_) {
+                            if (score_j > best_score_j && score_j > matchScore_) {
                                 best_score_j = score_j;
                             }
 
@@ -710,7 +754,7 @@ vector<tuple<int, int> > BoardFinder::kdTreeMatch(vector<Position> detectPoints,
                         //end loop
 
                         // update
-                        if (best_score_j > score_thresh_) {
+                        if (best_score_j > matchScore_) {
                             score_i += best_score_j;
                             match_j++;
                         }
@@ -734,12 +778,14 @@ vector<tuple<int, int> > BoardFinder::kdTreeMatch(vector<Position> detectPoints,
             // ==== ok
             // end loop i : ok
             // update assignment
-            if (best_score_i > final_score_thresh_) {
+            if (best_score_i > finalScore_) {
 
                 tuple<int, int> point_assign = std::make_tuple(i, results[i][best_id_i]);
+#if log_lv1
+
                 printf("pair [%d,%d]\n", i, results[i][best_id_i]);
                 std::cout << std::endl;
-//
+#endif
                 assignments.push_back(point_assign);
             } else {
                 // clear
@@ -752,13 +798,71 @@ vector<tuple<int, int> > BoardFinder::kdTreeMatch(vector<Position> detectPoints,
 
 
     }
-    return assignments;
+
+    // fix bug
+    // check if assignments is stric one to one
+    // main check if more than one detect assign with a same realboard
+    map<int, int> mapcheck;
+    vector<int> remove_ids;
+    for (int i = 0; i < assignments.size(); i++) {
+        int ass_1 = std::get<1>(assignments[i]);
+        if (mapcheck[ass_1] == 0) {
+            mapcheck[ass_1] = 1;
+        } else {
+            mapcheck[ass_1]++;
+        }
+
+        // check
+        if (mapcheck[ass_1] > 1) {
+            // remove the small length one
+            vector<int> check_ids;
+            for (int j = 0; j < assignments.size(); j++) {
+                int check_id = std::get<1>(assignments[j]);
+                if (check_id == ass_1) {
+                    check_ids.push_back(std::get<0>(assignments[j]));
+                }
+            }
+
+            // choose id to remove
+            // choose the longger board
+            int best_id = 0;
+            double best_length = 0;
+            for (int k = 0; k < check_ids.size(); k++) {
+                if (detectPoints[check_ids[k]].length > best_length) {
+                    best_id = k;
+                    best_length = detectPoints[check_ids[k]].length;
+                }
+            }
+
+            // add ohter id to remove ids
+            for (int k = 0; k < check_ids.size(); k++) {
+                if (k != best_id) {
+                    remove_ids.push_back(check_ids[k]);
+                }
+            }
+        }
+    }
+    auto new_assignments = assignments;
+
+    new_assignments.clear();
+    for (int i = 0; i < assignments.size(); i++) {
+        bool rm = false;
+        for (int j = 0; j < remove_ids.size(); j++) {
+            if (std::get<0>(assignments[i]) == remove_ids[j]) {
+                rm = true;
+            }
+        }
+        if (!rm) {
+            new_assignments.push_back(assignments[i]);
+        }
+    }
+
+    return new_assignments;
 }
 
 bool
 BoardFinder::findNN(vector<Position> &realPointsW, vector<Position> &realPoints, vector<Position> &detectPoints) {
 
-    // todo: reform sort mathod;
     // first find nearest points within radius
     // for those can't tell aprt from kdtree search, use pattern match
 
@@ -779,7 +883,7 @@ BoardFinder::findNN(vector<Position> &realPointsW, vector<Position> &realPoints,
     // match reamined points
 #if 1
     assign = kdTreeMatch(detectPoints, realPoints);
-    if (assign.empty()) {
+    if (assign.empty() || (!detectOne_ && assign.size() == 1)) {
 
         cout << "match failure!!" << endl;
         realPointsW = realPointReg;
@@ -843,7 +947,6 @@ BoardFinder::findNN(vector<Position> &realPointsW, vector<Position> &realPoints,
     } else {
 
         if (!detectOne_){
-            // todo: bypass oneboard
             return false;
         }
 
@@ -895,6 +998,14 @@ void BoardFinder::updateSharedData(tf::Transform mapTOodomTf) {
 
     geometry_msgs::Pose debug_odom;
     tf::poseTFToMsg(mapOdomTf_, debug_odom);
+#if 0
+    ROS_ERROR_STREAM("latest updated odom\n"<<debug_odom);
+    if (debug_odom.position.x < 17 || debug_odom.position.x >19){
+        ROS_ERROR_STREAM("exit at latest updated odom\n"<<debug_odom);
+
+        exit(0);
+    }
+#endif
 #if log_lv1
 
     ROS_ERROR_STREAM("update odom \n" << debug_odom);
@@ -907,6 +1018,7 @@ void BoardFinder::updateSharedData(tf::Transform mapTOodomTf) {
     // if thread is not running ; start running
     if (!threadClass_.isRunning()) {
 #if 1
+        // todo ; pypass thread
         threadClass_.start();
 #endif
     }
@@ -1101,10 +1213,12 @@ void BoardFinder::findLocation() {
         // 2 and more , compute with relative position of betwwen board
 
         if (match) {
+            cout << endl << "match ok!" << endl;
             // compute target vector
             computeUpdatedPose(realPointsW, detectPoints);
 #if 1
             int resetDuration_ = param_["resetDuration"].As<int>(5);
+            matchNum_++;
 
             if (matchNum_ % resetDuration_ == 0) {
                 resetAmcl();
@@ -1113,26 +1227,32 @@ void BoardFinder::findLocation() {
                     matchNum_ = 0;
                 }
             }
-            matchNum_++;
 
 #endif
             lastPublishOk_ = true;
 
         } else {
+            cout << endl << "match failed! no match board" << endl;
+
             // find no match board
             tf::Transform transform;
             tf::poseMsgToTF(laserPose_, transform);
             updateMapOdomTf(transform);
             lastPublishOk_ = false;
+            matchNum_ = 1;
         }
 
 
     } else {
+        cout << endl << "match failed! detect no board" << endl;
+
         // detect no board
         tf::Transform transform;
         tf::poseMsgToTF(laserPose_, transform);
         updateMapOdomTf(transform);
         lastPublishOk_ = false;
+        matchNum_ = 1;
+
 
     }
 }

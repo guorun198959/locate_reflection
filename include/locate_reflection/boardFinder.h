@@ -117,6 +117,7 @@ private:
     string base_frame_id_;
     string laser_frame_id_;
     string fixed_frame_id_;
+    bool getresetpose_;
 
     // match param
     // parameter
@@ -153,7 +154,7 @@ private:
     bool getFirstmapOdomTf_;
 
     // get tf from topic
-    bool getMapOdomTf(double sleep = 0.01);
+    bool getMapOdomTf(double sleep = 0.05);
     void updateSharedData(tf::Transform mapTOodomTf);
 
     void updateMapOdomTf(tf::Transform laserPose);
