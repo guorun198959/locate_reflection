@@ -21,6 +21,7 @@ BoardFinder::BoardFinder(ros::NodeHandle nh, ros::NodeHandle nh_private) :
     // topic
     scan_topic_ = "scan";
     odomtf_topic_ = "amcl_tf";
+    locate_tf_topic_ = "locate_tf";
     initialpose_topic_ = "initialpose";
     set_particles_service_name_ = "/amcl/set_particles";
     // frame
@@ -28,6 +29,8 @@ BoardFinder::BoardFinder(ros::NodeHandle nh, ros::NodeHandle nh_private) :
     base_frame_id_ = "base_link";
     laser_frame_id_ = "laser";
     fixed_frame_id_ = "map";
+    if (!nh_private_.getParam("use_locate", use_locate_))
+        use_locate_ = false;
 
     // reset state
     baseLaserTf_.setIdentity();
@@ -54,6 +57,11 @@ BoardFinder::BoardFinder(ros::NodeHandle nh, ros::NodeHandle nh_private) :
     auto res3 = l.createSubcriber<geometry_msgs::PoseWithCovarianceStamped>(initialpose_topic_, 1);
 
     initialPose_data_ = std::get<0>(res3);
+
+    // create locate_tf sub
+    auto res4 = l.createSubcriber<geometry_msgs::PoseWithCovarianceStamped>(locate_tf_topic_, 1);
+
+    locate_odom_data_ = std::get<0>(res4);
 
     // create /amcl/set_particles
     l.createServiceClient<amcl::amcl_particles>(set_particles_service_name_);
@@ -158,11 +166,16 @@ bool BoardFinder::getMapOdomTf(double sleep) {
     // wait amcl tf from the first
     // at reboot, this tf only publish once
     bool getmsg;
+    bool get_locate_msg = false;
     if (getresetpose_) {
         getmsg = l.getOneMessage(odomtf_topic_, -1);
 
     } else {
         getmsg = l.getOneMessage(odomtf_topic_, sleep);
+
+        if (use_locate_) {
+            get_locate_msg = l.getOneMessage(locate_tf_topic_, sleep);
+        }
 
     };
     if (lastPublishOk_ && matchNum_ == 0) {
@@ -176,6 +189,7 @@ bool BoardFinder::getMapOdomTf(double sleep) {
         if (!getmsg) {
             return false;
         } else {
+            // get fisr tf
             getFirstmapOdomTf_ = true;
             tf::Transform transform;
             tf::poseMsgToTF(mapOdom_data_.get()->pose.pose, transform);
@@ -186,12 +200,22 @@ bool BoardFinder::getMapOdomTf(double sleep) {
         // get tf at usual work time
         // if last match succefful; not update local tf
 
-        if (!lastPublishOk_ && getmsg) {
+        if (!lastPublishOk_) {
             // detect fail at some condition, must reset amcl using last correct odom, and use new comming data to update local odom
             // update local mapodomtf
-            geometry_msgs::Pose debug_pose;
-            debug_pose = mapOdom_data_.get()->pose.pose;
-            tf::poseMsgToTF(mapOdom_data_.get()->pose.pose, mapOdomTf_);
+            if (getmsg && !use_locate_) {
+                geometry_msgs::Pose debug_pose;
+                debug_pose = mapOdom_data_.get()->pose.pose;
+                tf::poseMsgToTF(mapOdom_data_.get()->pose.pose, mapOdomTf_);
+            }
+            if (get_locate_msg && use_locate_) {
+                geometry_msgs::Pose debug_pose;
+                debug_pose = locate_odom_data_.get()->pose.pose;
+                tf::poseMsgToTF(locate_odom_data_.get()->pose.pose, mapOdomTf_);
+
+            }
+
+
 
         }
 

@@ -97,6 +97,8 @@ private:
     std::shared_ptr<sensor_msgs::LaserScan> laser_data_;
     std::shared_ptr<geometry_msgs::PoseWithCovarianceStamped> mapOdom_data_;
     std::shared_ptr<geometry_msgs::PoseWithCovarianceStamped> initialPose_data_;
+    std::shared_ptr<geometry_msgs::PoseWithCovarianceStamped> locate_odom_data_;
+
 
     // internal state
     geometry_msgs::Pose laserPose_;
@@ -108,9 +110,10 @@ private:
     int matchNum_;
 
 
-    // psrameter
+    // parameter
     string scan_topic_;
     string odomtf_topic_;
+    string locate_tf_topic_;
     string initialpose_topic_;
     string set_particles_service_name_;
     string odom_frame_id_;
@@ -118,6 +121,7 @@ private:
     string laser_frame_id_;
     string fixed_frame_id_;
     bool getresetpose_;
+    bool use_locate_;
 
     // match param
     // parameter

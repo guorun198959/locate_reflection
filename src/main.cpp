@@ -15,24 +15,6 @@
 #include <std_srvs/Empty.h>
 #include "amcl/amcl_particles.h"
 
-template<class Vector3>
-std::pair<Vector3, Vector3> best_line_from_points(const std::vector<Vector3> &c) {
-    // copy coordinates to  matrix in Eigen format
-    size_t num_atoms = c.size();
-    Eigen::Matrix<typename Vector3::Scalar, Eigen::Dynamic, Eigen::Dynamic> centers(num_atoms, 3);
-    for (size_t i = 0; i < num_atoms; ++i) centers.row(i) = c[i];
-
-    Vector3 origin = centers.colwise().mean();
-    Eigen::MatrixXd centered = centers.rowwise() - origin.transpose();
-    Eigen::MatrixXd cov = centered.adjoint() * centered;
-    Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eig(cov);
-    Vector3 axis = eig.eigenvectors().col(2).normalized();
-
-    return std::make_pair(origin, axis);
-}
-
-
-
 int main(int argc, char **argv) {
 
 
@@ -180,7 +162,6 @@ int main(int argc, char **argv) {
 
     pm.match(p1,p2);
 #endif
-
 
 
 
