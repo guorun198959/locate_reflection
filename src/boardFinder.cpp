@@ -24,6 +24,7 @@ BoardFinder::BoardFinder(ros::NodeHandle nh, ros::NodeHandle nh_private) :
     locate_tf_topic_ = "locate_tf";
     initialpose_topic_ = "initialpose";
     set_particles_service_name_ = "/amcl/set_particles";
+    vel_topic_ = "vel_actual";
     // frame
     odom_frame_id_ = "odom";
     base_frame_id_ = "base_link";
@@ -65,6 +66,10 @@ BoardFinder::BoardFinder(ros::NodeHandle nh, ros::NodeHandle nh_private) :
 
     // create /amcl/set_particles
     l.createServiceClient<amcl::amcl_particles>(set_particles_service_name_);
+
+    // create vel_actual_data_
+    auto res5 = l.createSubcriber<geometry_msgs::Twist>(vel_topic_, 1);
+    vel_actual_data_ = std::get<0>(res5);
 
 
     //  thread shared data
@@ -131,6 +136,10 @@ void BoardFinder::initParams() {
     angleRatio_ = param_["angleRatio"].As<double>(6);
     matchScore_ = param_["matchScore"].As<double>(1.1);
     finalScore_ = param_["finalScore"].As<double>(1.1);
+    static_dist_ = param_["static_dist"].As<double>(0.05);
+    static_angle_ = param_["static_angle"].As<double>(0.02);
+    vel_angular_min_ = param_["vel_angular_min"].As<double>(0.3);
+
 }
 
 // get intialpose
@@ -140,6 +149,11 @@ bool BoardFinder::getInitialpose() {
     return getmsg;
 }
 
+// get vel
+bool BoardFinder::getVel() {
+    bool getmsg = l.getOneMessage(vel_topic_, 0.01);
+    return getmsg;
+}
 // get scan data
 // if no data , return false;
 bool BoardFinder::updateSensor() {
@@ -153,7 +167,13 @@ bool BoardFinder::updateSensor() {
     }
     bool getpose = getLaserPose();
 
-    return getmsg && getpose;
+    bool get_rotation = getVel();
+    bool rotation_fast_ = false;
+    if (get_rotation) {
+        rotation_fast_ = fabs((*vel_actual_data_).angular.z) > vel_angular_min_;
+    }
+
+    return getmsg && getpose && !rotation_fast_;
 }
 
 // get tf data
@@ -255,6 +275,7 @@ bool BoardFinder::getLaserPose() {
         geometry_msgs::Pose laserPose;
         tf::poseTFToMsg(mapOdomTf_ * odomBaseTf_ * baseLaserTf_, laserPose);
         // get invalid data? from which source
+#if log_lv1
         geometry_msgs::Pose p1, p2, p3;
         tf::poseTFToMsg(mapOdomTf_, p1);
         tf::poseTFToMsg(odomBaseTf_, p2);
@@ -263,7 +284,7 @@ bool BoardFinder::getLaserPose() {
         ROS_ERROR_STREAM("odomBaseTf_\n" << p2);
         ROS_ERROR_STREAM("baseLaserTf_\n" << p3);
         ROS_ERROR_STREAM("laserPose\n" << laserPose);
-
+#endif
         // todo:debug update laser pose
         if (getresetpose_) {
             getresetpose_ = false;
@@ -535,9 +556,9 @@ vector<Position> BoardFinder::detectBoard() {
 
             pointNum++;
         }
-        if (d > thresh || (i == distance.size() - 1 && d < thresh)) {
+        if (d > thresh || (i == sz - 1)) {
 #if 1
-            if (i == distance.size() - 1) {
+            if (i == sz - 1) {
                 i++;
             }
 #endif
@@ -552,7 +573,7 @@ vector<Position> BoardFinder::detectBoard() {
                 // push light point to vector
                 // fit line
                 vector<cv::Point2d> FitPoints;
-                for (size_t it = i - pointNum; it < i; it++) {
+                for (size_t it = i - pointNum; it < std::min(i + 1, sz - 1); it++) {
                     idx_vec.push_back(it);
                     lightpose.position.x = lightXs[it];
                     lightpose.position.y = lightYs[it];
@@ -564,7 +585,15 @@ vector<Position> BoardFinder::detectBoard() {
                 //double angle = LineFitting(FitPoints);
 
                 // call svd line fit
-                double angle = svdfit(FitPoints);
+                double angle = 0.0;
+
+
+                bool fitted = FitPoints.size() > 1;
+                if (fitted)
+                    angle = svdfit(FitPoints);
+                else {
+                    continue;
+                }
 
 
 
@@ -584,12 +613,17 @@ vector<Position> BoardFinder::detectBoard() {
                 double board_length = sqrt(pow(cluster_x[0] - cluster_x[cluster_x.size() - 1], 2) +
                                            pow(cluster_y[0] - cluster_y[cluster_y.size() - 1], 2));
 
-                if (normalDiff(angletorobot, angle + 0.5 * M_PI) < normalDiff(angletorobot, angle - 0.5 * M_PI)) {
-                    angle += 0.5 * M_PI;
-                } else {
-                    angle -= 0.5 * M_PI;
+                if (fitted) {
+                    if (normalDiff(angletorobot, angle + 0.5 * M_PI) < normalDiff(angletorobot, angle - 0.5 * M_PI)) {
+                        angle += 0.5 * M_PI;
+                    } else {
+                        angle -= 0.5 * M_PI;
 
-                }
+                    }
+                } else {
+                    angle = angletorobot;
+                };
+
 
                 p.x = center_x;
                 p.y = center_y;
@@ -1016,9 +1050,24 @@ void BoardFinder::updateSharedData(tf::Transform mapTOodomTf) {
     ros::Duration transform_tolerance;
     transform_tolerance.fromSec(0.1);
     ros::Time transform_expiration = (tn + transform_tolerance);
-    mapOdomTf_ = tf::StampedTransform(mapTOodomTf,
-                                      transform_expiration,
-                                      fixed_frame_id_, odom_frame_id_);
+    tf::StampedTransform tmp_mapOdomTf_ = tf::StampedTransform(mapTOodomTf,
+                                                               transform_expiration,
+                                                               fixed_frame_id_, odom_frame_id_);
+
+    double change_length = (tmp_mapOdomTf_ * mapOdomTf_.inverse()).getOrigin().length();
+    double change_angle = tf::getYaw((tmp_mapOdomTf_ * mapOdomTf_.inverse()).getRotation());
+#if 1
+    if (lastPublishOk_ && (change_length < static_dist_ && fabs(change_angle) < static_angle_)) {
+
+//        mapOdomTf_ = tmp_mapOdomTf_;
+        return;
+
+    }
+#endif
+
+    mapOdomTf_ = tmp_mapOdomTf_;
+
+
 
     geometry_msgs::Pose debug_odom;
     tf::poseTFToMsg(mapOdomTf_, debug_odom);
@@ -1089,10 +1138,12 @@ void BoardFinder::computeUpdatedPose(vector<Position> realPoints, vector<Positio
 
     translation.x = realX;
     translation.y = realY;
+    translation.z = baseLaserTf_.getOrigin().z();
 
     realTarget = tf_util::createTransformFromTranslationYaw(translation, realyaw);
     translation.x = detectX;
     translation.y = detectY;
+    translation.z = baseLaserTf_.getOrigin().z();
     detectTarget = tf_util::createTransformFromTranslationYaw(translation, detectyaw);
 
 

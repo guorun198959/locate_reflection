@@ -450,7 +450,7 @@ namespace threading_util {
                     // read shared data in thread . make it thread safe
                     tf::StampedTransform msg = *data;
                     msg.stamp_ = transform_expiration;
-                    tfb_->sendTransform(*data);
+                    tfb_->sendTransform(msg);
 #endif
                     std::this_thread::sleep_for(std::chrono::milliseconds(sleep_));
 

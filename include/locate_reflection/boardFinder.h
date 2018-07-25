@@ -98,6 +98,8 @@ private:
     std::shared_ptr<geometry_msgs::PoseWithCovarianceStamped> mapOdom_data_;
     std::shared_ptr<geometry_msgs::PoseWithCovarianceStamped> initialPose_data_;
     std::shared_ptr<geometry_msgs::PoseWithCovarianceStamped> locate_odom_data_;
+    std::shared_ptr<geometry_msgs::Twist> vel_actual_data_;
+
 
 
     // internal state
@@ -115,6 +117,7 @@ private:
     string odomtf_topic_;
     string locate_tf_topic_;
     string initialpose_topic_;
+    string vel_topic_;
     string set_particles_service_name_;
     string odom_frame_id_;
     string base_frame_id_;
@@ -132,6 +135,9 @@ private:
     double angleRatio_;
     double matchScore_;
     double finalScore_;
+    double static_dist_;
+    double static_angle_;
+    double vel_angular_min_;
 
     bool detectOne_;
 
@@ -165,6 +171,9 @@ private:
 
     // get initialpose
     bool getInitialpose();
+
+    // get vel
+    bool getVel();
 
 
     // read xmlfile

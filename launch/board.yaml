@@ -1,6 +1,6 @@
 version : 0.1
 visibel_angle: 1.4
-visibel_range_ratio: 0.8
+visibel_range_ratio: 0.4
 intensity_thresh: 600
 neighbor_thresh: 5
 length_thresh: 0.03
@@ -16,6 +16,9 @@ x_cov: 0.05
 y_cov: 0.05
 yaw_cov: 0.03
 resetDuration: 3
+static_dist: 0.05
+static_angle: 0.02
+vel_angular_min: 0.3
 board_position:
   - x: 11.90
     y: 10.32
@@ -25,4 +28,51 @@ board_position:
     y: 16.31
     yaw: -0.025
     length: 0.5
-
+  - x: 12.145
+    y: 34.363
+    yaw: 0.001
+    length: 0.1
+  - x: 23.574
+    y: 34.121
+    yaw: 3.139
+    length: 0.1
+  - x: 12.170
+    y: 28.356
+    yaw: 0.045
+    length: 0.1
+  - x: 23.431
+    y: 28.749
+    yaw: -3.052
+    length: 0.1
+  - x: 12.123
+    y: 22.392
+    yaw: 0.020
+    length: 0.1
+  - x: 11.385
+    y: 28.323
+    yaw: -3.116
+    length: 0.1
+  - x: -0.060
+    y: 22.437
+    yaw: 0.007
+    length: 0.1
+  - x: 11.322
+    y: 22.420
+    yaw: -3.119
+    length: 0.1
+  - x: -0.148
+    y: 16.242
+    yaw: 0.033
+    length: 0.1
+  - x: 11.250
+    y: 16.344
+    yaw: -3.091
+    length: 0.1
+  - x: -0.217
+    y: 10.530
+    yaw: 0.054
+    length: 0.1
+  - x: 11.151
+    y: 10.404
+    yaw: -3.138
+    length: 0.1
