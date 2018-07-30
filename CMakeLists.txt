@@ -106,9 +106,9 @@ configure_file(
 set(LIB_SRC include/yaml/Yaml.cpp src/boardFinder.cpp src/patternMatcher.cpp)
 add_executable(${PROJECT_NAME}_node src/main.cpp ${LIB_SRC})
 target_link_libraries(${PROJECT_NAME}_node ${catkin_LIBRARIES} ${OpenCV_LIBS})
-
-add_executable(matrix src/start_up.cpp include/yaml/Yaml.cpp)
-target_link_libraries(matrix)
+#
+#add_executable(matrix src/start_up.cpp include/yaml/Yaml.cpp)
+#target_link_libraries(matrix ${catkin_LIBRARIES} ${OpenCV_LIBS})
 
 
 install(

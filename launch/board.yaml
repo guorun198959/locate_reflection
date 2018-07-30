@@ -11,7 +11,6 @@ distRatio: 2
 angleRatio: 6
 matchScore: 1.1
 finalScore: 0.8
-query_radius: 1.5
 x_cov: 0.05
 y_cov: 0.05
 yaw_cov: 0.03
@@ -19,6 +18,7 @@ resetDuration: 3
 static_dist: 0.05
 static_angle: 0.02
 vel_angular_min: 0.3
+amcl_diff_max: 6
 board_position:
   - x: 11.90
     y: 10.32

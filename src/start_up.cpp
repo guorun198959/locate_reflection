@@ -7,551 +7,249 @@
 #include <vector>
 #include <tuple>
 #include <ctime>
+#include <valarray>
 #include <boost/random/normal_distribution.hpp>
 #include <boost/random/mersenne_twister.hpp>
 #include <boost/random/variate_generator.hpp>
 #include <cpp_utils/random.h>
 
 #include <cpp_utils/parse.h>
+#include <ros/ros.h>
+#include <tf/tf.h>
+#include <geometry_msgs/Pose.h>
+#include <cpp_utils/listener.h>
+#include <map>
+#include <opencv2/core/core.hpp>
+#include <opencv2/highgui/highgui.hpp>
 
+#define CVUI_IMPLEMENTATION
 
+#include <cpp_utils/cvui.h>
 
 using std::vector;
 using std::tuple;
-
-template<class T>
-double gen_normal_3(T &generator) {
-    return generator();
-}
-
-// store position
-struct Position {
-    double x;
-    double y;
-    double yaw;
-};
+using std::valarray;
+using std::map;
+#define WINDOW_NAME    "Sparkline"
 
 
-struct AssignmentMatrix {
-    Eigen::MatrixXf assignmentMatrix;
-    vector<tuple<int, int> > assignments;
-    double assignScores;
-    vector<double> scoreVec;
-
-    AssignmentMatrix(int row, int col) : assignmentMatrix(Eigen::MatrixXf(row, col)) {
-        assignmentMatrix.setZero();
-        assignments.clear();
-        scoreVec.clear();
-        assignScores = 0.0;
-    };
-
-    void clear() {
-        assignmentMatrix.setZero();
-        assignments.clear();
-        scoreVec.clear();
-    }
-
-    void add(int i, int m, double score) {
-        if ((assignmentMatrix.row(i).array() == 1).any()) {
-            // if add this get better score;add
-            // else return with unchange
-            if (score < scoreVec[scoreVec.size() - 1])
-                return;
-
-            assignmentMatrix.row(i).setZero();
-            assignments.pop_back();
-            scoreVec.pop_back();
-        }
-        assignmentMatrix(i, m) = 1;
-        assignments.push_back(std::make_tuple(i, m));
-        scoreVec.push_back(score);
-    }
-
-    double getScore() {
-        if (assignments.empty())
-            return 0;
-        double sum = 0;
-        for (int i = 0; i < scoreVec.size(); i++) sum += scoreVec[i];
-        sum += assignScores;
-
-        return sum / double(scoreVec.size() + 1);
-    }
-};
-
-
-double scoreFunc(double x, double base, double ratio) {
-    return pow(base, ratio * x);
-}
-
-
-class PatternMatcher {
+class Gui {
 private:
-    // parameter
-    double radius_;
-    double distScoreBase_;
-    double angleScoreBase_;
-    double distRatio_;
-    double angleRatio_;
-    double matchScore_;
-
-    // method
-    void initParams() {
-
-        string filename = "board.yaml";
-        Yaml::Node param_;
-        try {
-            param_ = Yaml::readFile(filename);
-
-        } catch (...) {
-
-            printf("read failed!!\n");
-            exit(0);
-        }
-        radius_ = param_["radius"].As<double>(0.1);
-        distScoreBase_ = param_["distScoreBase"].As<double>(0.1);
-        angleScoreBase_ = param_["angleScoreBase"].As<double>(0.1);
-        distRatio_ = param_["distRatio"].As<double>(2);
-        angleRatio_ = param_["angleRatio"].As<double>(6);
-        matchScore_ = param_["matchScore"].As<double>(1.1);
-
-
-    }
-
+    string windowName_;
+    map<string, bool> boolMap_;
+    map<string, float> numMap_;
 public:
+    Gui(cv::Mat &bg, string windowName);
+
+    cv::Mat bg_;
+    cv::Mat bg_copy_;
+
+    void createCheckBox(int x, int y, string content, bool &state);
+
+    void update();
+
+    void show();
+
+    bool getBool(string key);
+
+    float getNum(string key);
 
 };
-void f() {
-    using namespace std;
-    using namespace Eigen;
 
-    // parameters
-    double radius = 0.3;
+Gui::Gui(cv::Mat &bg, string windowName) : bg_(bg), windowName_(windowName) {
+    bg_copy_ = bg_.clone();
+}
 
-    double distScoreBase_ = 0.1, angleScoreBase_ = 0.05;
+void Gui::createCheckBox(int x, int y, string content, bool &state) {
+    cvui::checkbox(bg_copy_, x, y, "update data", &state);
 
-    double matchScore_ = 1.0;
+}
 
-    // observe points and map points
-    MatrixXf PointObs(3, 2);
-    MatrixXf PointMap(4, 2);
+void Gui::update() {
+    // create ui
 
-    PointObs << -1, 2, 1, 2, 1.5, 1.5;
-    PointMap << -3.1, 1.9, -1.1, 1.9, 0.9, 1.9, 1.4, 1.4;
 
-
-    cout << "get obs points = \n" << PointObs << endl;
-    cout << "get map points = \n" << PointMap << endl;
-//    cout << "distance = " << (PointObs - PointMap).norm() << endl;
-    cout << "get obs shape = " << PointObs.rows() << "," << PointObs.cols() << endl;
-
-
-
-    // assign matrix
-    vector<AssignmentMatrix> rootvVec;
-
-
-
-
-    // find start pair as root
-    // return
-    // select one pair [i,j] in obs
-    cout << "==== start find root " << endl;
-    for (int i = 0; i < PointObs.rows(); i++) {
-
-        for (int j = 0; j < i; j++) {
-
-            double distobs = (PointObs.row(i) - PointObs.row(j)).norm();
-            printf("@ obs distance %f, between %d,%d \n", distobs, i, j);
-
-            // loop in map
-            for (int m = 0; m < PointMap.rows(); m++) {
-
-                for (int n = 0; n < m; n++) {
-
-                    double distMap = (PointMap.row(m) - PointMap.row(n)).norm();
-                    printf("map distance %f, between %d,%d \n", distMap, m, n);
-
-                    if (fabs(distobs - distMap) < radius) {
-                        printf("i=%d, j=%d,m=%d,n=%d\n", i, j, m, n);
-                        // assign matrix
-                        AssignmentMatrix Am(PointObs.rows(), PointMap.rows());
-                        Am.add(i, m, 0);
-                        Am.add(j, n, 0);
-
-
-                        rootvVec.push_back(Am);
-                    }
-
-
-                }
-            }
-
-
-        }
-    }
-    cout << "==== done find root " << endl;
-    // check if find root successful
-    if (rootvVec.empty()) {
-        cout << "find root failure" << endl;
-        return;
-    }
-
-    cout << "==== start check assignment , Num " << rootvVec.size() << endl;
-
-    // check assign matrix
-
-    // calculate match sore for each matrix
-
-    for (int idx = 0; idx < rootvVec.size(); idx++) {
-        cout << "check assign = \n" << rootvVec[idx].assignmentMatrix << endl;
-
-
-        // for each point in obs except root pair
-        // find assignment in map
-
-        // for each row in assign matrix
-        // check it's norm , assigned or not
-        //
-
-        // for assign matrix
-        int obsR = std::get<0>(rootvVec[idx].assignments[0]);
-        int obsL = std::get<0>(rootvVec[idx].assignments[1]);
-        int mapR = std::get<1>(rootvVec[idx].assignments[0]);
-        int mapL = std::get<1>(rootvVec[idx].assignments[1]);
-
-
-        // obsL  < obsR
-        cout << "obsL " << obsL << " obsR " << obsR << endl;
-        cout << "mapL " << mapL << " mapR " << mapR << endl;
-
-        // if obsnum >2
-        // it must be one case in below
-        // else skip
-        // after match , we get what ;
-        //
-
-        // check point < L
-        int tmpL = mapL - 1, tmpR = mapR - 1;
-        for (int obsid = obsL - 1; obsid >= 0; obsid--) {
-            cout << "point < L obsid = " << obsid << endl;
-            for (int mapid = tmpL; mapid >= 0; mapid--) {
-                cout << "point < L mapid = " << mapid << endl;
-
-                // how to compute match score
-                // for one point
-                // caculate distance to pointL, pointR,angle
-                double distDiff = fabs((PointObs.row(obsid) - PointObs.row(obsL)).norm() +
-                                       (PointObs.row(obsid) - PointObs.row(obsR)).norm() -
-                                       ((PointMap.row(mapid) - PointMap.row(mapL)).norm() +
-                                        (PointMap.row(mapid) - PointMap.row(mapR)).norm())
-                );
-                double angleDiff = fabs(
-                        atan2(PointObs(obsid, 1) - PointObs(obsL, 1), PointObs(obsid, 0) - PointObs(obsL, 0))
-                        - atan2(PointObs(obsR, 1) - PointObs(obsL, 1), PointObs(obsR, 0) - PointObs(obsL, 0))
-                        - (atan2(PointMap(mapid, 1) - PointMap(mapL, 1),
-                                 PointMap(mapid, 0) - PointMap(mapL, 0))
-                           - atan2(PointMap(mapR, 1) - PointMap(mapL, 1),
-                                   PointMap(mapR, 0) - PointMap(mapL, 0))));
-
-                // if distance < thresh
-                // add to assignments
-                // update matrix
-                double score = scoreFunc(distDiff, distScoreBase_, 2) + scoreFunc(angleDiff, angleScoreBase_, 6);
-                cout << "distDiff = " << distDiff << "angleDiff = " << angleDiff << "score = " << score << endl;
-
-                if (score > matchScore_) {
-                    // update bound
-                    tmpL = mapid - 1;
-                    // update score
-                    rootvVec[idx].add(obsid, mapid, score);
-                    cout << "update assign matrix = \n " << rootvVec[idx].assignmentMatrix << endl;
-
-
-
-                }
-
-            }
-
-        }
-
-        // check   L<point<R
-        tmpL = mapL + 1;
-        for (int obsid = obsL + 1; obsid < obsR; obsid++) {
-            cout << "L<point<R obsid = " << obsid << endl;
-
-            for (int mapid = tmpL; mapid < mapR; mapid++) {
-                cout << "L<point<R mapid = " << mapid << endl;
-                double distDiff = fabs((PointObs.row(obsid) - PointObs.row(obsL)).norm() +
-                                       (PointObs.row(obsid) - PointObs.row(obsR)).norm() -
-                                       ((PointMap.row(mapid) - PointMap.row(mapL)).norm() +
-                                        (PointMap.row(mapid) - PointMap.row(mapR)).norm())
-                );
-                double angleDiff = fabs(
-                        atan2(PointObs(obsid, 1) - PointObs(obsL, 1), PointObs(obsid, 0) - PointObs(obsL, 0))
-                        - atan2(PointObs(obsR, 1) - PointObs(obsL, 1), PointObs(obsR, 0) - PointObs(obsL, 0))
-                        - (atan2(PointMap(mapid, 1) - PointMap(mapL, 1),
-                                 PointMap(mapid, 0) - PointMap(mapL, 0))
-                           - atan2(PointMap(mapR, 1) - PointMap(mapL, 1),
-                                   PointMap(mapR, 0) - PointMap(mapL, 0))));
-
-                double score = scoreFunc(distDiff, distScoreBase_, 2) + scoreFunc(angleDiff, angleScoreBase_, 6);
-                cout << "distDiff = " << distDiff << "angleDiff = " << angleDiff << "score = " << score << endl;
-
-                if (score > matchScore_) {
-                    // update bound
-                    tmpL = mapid + 1;
-                    // update score
-                    rootvVec[idx].add(obsid, mapid, score);
-                    cout << "update assign matrix = \n " << rootvVec[idx].assignmentMatrix << endl;
-
-
-                }
-
-
-            }
-        }
-
-        // check point >R
-
-        tmpR = mapR + 1;
-        for (int obsid = obsR + 1; obsid < rootvVec[idx].assignmentMatrix.rows(); obsid++) {
-            cout << "point >R obsid = " << obsid << endl;
-
-            for (int mapid = tmpR; mapid < rootvVec[idx].assignmentMatrix.cols(); mapid++) {
-                cout << "point >R mapid = " << mapid << endl;
-                double distDiff = fabs((PointObs.row(obsid) - PointObs.row(obsL)).norm() +
-                                       (PointObs.row(obsid) - PointObs.row(obsR)).norm() -
-                                       ((PointMap.row(mapid) - PointMap.row(mapL)).norm() +
-                                        (PointMap.row(mapid) - PointMap.row(mapR)).norm())
-                );
-                double angleDiff = fabs(
-                        atan2(PointObs(obsid, 1) - PointObs(obsL, 1), PointObs(obsid, 0) - PointObs(obsL, 0))
-                        - atan2(PointObs(obsR, 1) - PointObs(obsL, 1), PointObs(obsR, 0) - PointObs(obsL, 0))
-                        - (atan2(PointMap(mapid, 1) - PointMap(mapL, 1),
-                                 PointMap(mapid, 0) - PointMap(mapL, 0))
-                           - atan2(PointMap(mapR, 1) - PointMap(mapL, 1),
-                                   PointMap(mapR, 0) - PointMap(mapL, 0))));
-
-                double test = -(atan2(PointMap(mapid, 1) - PointMap(mapL, 1),
-                                      PointMap(mapid, 0) - PointMap(mapL, 0))
-                                - atan2(PointMap(mapR, 1) - PointMap(mapL, 1),
-                                        PointMap(mapR, 0) - PointMap(mapL, 0)));
-
-                double score = scoreFunc(distDiff, distScoreBase_, 2) + scoreFunc(angleDiff, angleScoreBase_, 6);
-                cout << "distDiff = " << distDiff << "angleDiff = " << angleDiff << "score = " << score << endl;
-
-                if (score > matchScore_) {
-                    // update bound
-                    tmpR = mapid + 1;
-                    // update score
-                    rootvVec[idx].add(obsid, mapid, score);
-                    cout << "update assign matrix = \n" << rootvVec[idx].assignmentMatrix << endl;
-
-
-                }
-
-
-            }
-        }
-
-
-        // if obsnum = 2
-        // add origin point to it and compute matrix distance
-        // get matrix
-        MatrixXf originPoint(1, 2);
-        originPoint << 0.0, 0.0;
-        double distDiff = fabs(PointObs.row(obsL).norm() + PointObs.row(obsR).norm() -
-                               (PointMap.row(mapL).norm() + PointMap.row(mapR).norm())
-        );
-        double angleDiff = fabs(atan2(-PointObs(obsL, 1), -PointObs(obsL, 0))
-                                - atan2(PointObs(obsR, 1) - PointObs(obsL, 1), PointObs(obsR, 0) - PointObs(obsL, 0))
-                                - (atan2(-PointMap(mapL, 1),
-                                         -PointMap(mapL, 0))
-                                   - atan2(PointMap(mapR, 1) - PointMap(mapL, 1),
-                                           PointMap(mapR, 0) - PointMap(mapL, 0))));
-
-
-        double score = scoreFunc(distDiff, distScoreBase_, 2) + scoreFunc(angleDiff, angleScoreBase_, 6);
-        cout << "origin distDiff = " << distDiff << "angleDiff = " << angleDiff << "score = " << score << endl;
-
-        rootvVec[idx].assignScores += score;
-
-
-
-
-
-
-        // for each assignment matrix
-        // caculate it's count
-        // how to use diff
-
-
-        // combine all matrix to one matrix
-        // given accumulate score to each element
-        // get each pattern a score
-
-
-
-
-
-
-
-
-        // result in a full assign matrix
-    }
-
-
-    // set all assignment matrix value to one matrix
-    // given each assignment a score
-    MatrixXf scoreMatrix(PointObs.rows(), PointMap.rows());
-    scoreMatrix.setZero();
-    for (int i = 0; i < rootvVec.size(); i++) {
-
-        cout << "each scorematrix = \n" << rootvVec[i].getScore() * rootvVec[i].assignmentMatrix << endl;
-        scoreMatrix += rootvVec[i].getScore() * rootvVec[i].assignmentMatrix;
-    }
-
-    cout << "scoreMatrix = \n" << scoreMatrix << endl;
-
-    int bestId = 0;
-    double bestScore = 0;
-    for (int i = 0; i < rootvVec.size(); i++) {
-
-        double score = (scoreMatrix.array() * rootvVec[i].assignmentMatrix.array()).sum();
-        cout << "each matrix score = \n" << score << endl;
-
-        if (score > bestScore) {
-            bestScore = score;
-            bestId = i;
-        }
-
-    }
-    cout << "get best id " << bestId << "best score " << bestScore << endl;
-
-    // check assign matrix
-    // choose best
-
-
-
-
-    // given point set
-    // sort points set according to close wise order
-    // get point wise distance matrix
-    // select a element in matrix, get its location
-
-
-    // inthe other matrix find neareast neighbor
-    // element wise substraction and mask
-    // get index matrix
-    // get index
-
-    // if observed more than 2 point use angle matrix
-    // else no use
-
-    // observe_num == 2
-    // add origin point to compute angle matrix
-    // only contain 1 element in the angle matrix
-
-
-    // find matrix with least difference between angle matrix and distance matrix
-
-    // if observe_num >= 3
-    // to find next point , remember scan order
-    //
-
-
-    // how to end a loop
-    // get what result
-
-    //
-
-
+    // all the behind the scenes magic to handle mouse clicks, etc.
+    cvui::update();
 
 
 }
 
+void Gui::show() {
+    cv::imshow(windowName_, bg_copy_);
+    bg_copy_ = bg_.clone();
 
-Eigen::MatrixXf createMatrixFromVector(std::vector<float> vec, int row, int col) {
-    using namespace Eigen;
-//    if (row*col == vec.size()){
-//
-//    }
-    float *data = &(vec[0]);
-
-    // Eigen use colmajor as default order
-    //If the storage order is not specified, then Eigen defaults to storing the entry in column-major. This is also the case if one of the convenience typedefs (Matrix3f, ArrayXXd, etc.) is used.
-
-    Map<MatrixXf> m(data, row, col);
-    return m;
 }
 
-// predefine matri
-int main() {
+int main(int argc, char **argv) {
+
+    cv::Mat frame = cv::Mat(600, 1000, CV_8UC3);
 
 
-    string filename = "board.yaml";
-    Yaml::Node param_;
-    try {
-        param_ = Yaml::readFile(filename);
-
-    } catch (...) {
-
-        printf("read failed!!\n");
-    }
-    auto visibel_angle = param_["visibel_angle1"].As<double>(666);
-    auto visibel_range_ratio = param_["visibel_range_ratio"].As<double>();
-
-    f();
-    return 0;
+    // Init cvui and tell it to create a OpenCV window, i.e. cv::namedWindow(WINDOW_NAME).
+    cvui::init(WINDOW_NAME);
+    cv::Point anchor;
+    cv::Rect roi(0, 0, 0, 0);
 
 
-    using namespace Eigen;
-    using namespace std;
-    int r = 3, c = 3;
-    MatrixXf m(r, c);
-    m << 1, 2, 3, 4, 5, 6, 7, 8, 9;
-    MatrixXf n = m;
-
-    cout << "m=" << endl << m << endl;
-    m = (m + MatrixXf::Constant(3, 3, 1.2)) * 50;
-
-    VectorXf v(3);
+    // get odom, vel_mb,base_link
 
 
-    v << 1, 0, 1;
-    cout << "m*v=" << endl << m * v << endl;
-
-    vector<float> d;
-    for (int i = 0; i < 9; i++)
-        d.push_back(i);
-    MatrixXf mmc = createMatrixFromVector(d, 3, 3);
-    cout << "mmc=" << endl << mmc;
-
-//    m.setOnes();
-    cout << "mask =\n" << (m.array() > m(0, 0));
 
 
-    ArrayXXf a(3, 2), b(2, 2);
-    a << -1, 2, 1, 2, 1.5, 1.5;
-    b << 5, 6, 7, 8;
+    ros::init(argc, argv, "cvui");
+    ros::NodeHandle nh;
+    ros::NodeHandle nh_private;
+    rosnode::Listener l(nh, nh_private);
 
-    cout << "a*b=\n" << a << endl;
+    ros::Time tn = ros::Time::now();
+
+    tf::Transform odombase_transform, mapbase_transform;
+
+    geometry_msgs::Pose pose, pose2;
+
+    std::shared_ptr<geometry_msgs::Twist> vel_data;
+    auto res = l.createSubcriber<geometry_msgs::Twist>("vel_mb", 5);
+    vel_data = std::get<0>(res);
+
+
+    double rate = 1;
+    ros::Rate r(rate);
+
+    valarray<double> yaw1(0.0, 1000), yaw2(0.0, 1000), vels(0.0, 1000), accu_angles(0.0, 1000);
+
+    int cnt = 0;
+    bool update = false;
+    bool bt = false;
+    double accu_angle = 0.0;
+    ros::Time last_time = ros::Time::now();
+
+    while (ros::ok()) {
+        frame = cv::Scalar(255, 255, 255);
+#if 1
+        tn = ros::Time::now();
+        bool get1 = l.getTransform("odom", "base_link", odombase_transform, tn, 0.01);
+        tf::poseTFToMsg(odombase_transform, pose);
+        bool get2 = l.getTransform("map", "base_link", mapbase_transform, tn, 0.01);
+        tf::poseTFToMsg(mapbase_transform, pose2);
+
+        bool get3 = l.getOneMessage("vel_mb", 0.05);
+
+        update = (get1 && get2 && get3);
+#endif
+        cvui::checkbox(frame, 0, 40, "update data", &bt);
+
+
+
+
+
+        // render box
+        if (cvui::mouse(cvui::DOWN)) {
+            // Position the anchor at the mouse pointer.
+            anchor.x = cvui::mouse().x;
+            anchor.y = cvui::mouse().y;
+
+            // Inform we are working, so the ROI window is not updated every frame
+        }
+        // Is any mouse button down (pressed)?
+        if (cvui::mouse(cvui::IS_DOWN)) {
+            // Adjust roi dimensions according to mouse pointer
+            int width = cvui::mouse().x - anchor.x;
+            int height = frame.rows;
+
+            roi.x = width < 0 ? anchor.x + width : anchor.x;
+            roi.y = 0;
+            roi.width = std::abs(width);
+            roi.height = std::abs(height);
+
+            // Show the roi coordinates and size
+            int s = roi.x;
+            int e = roi.x + roi.width;
+            valarray<double> tmp = vels[std::slice(s, roi.width, 1)];
+            cvui::printf(frame, 0, 20, 0.3, 0xff0000,
+                         "in this time duration , data change : yaw1 = %f, yaw2 = %f, vel = %f , accu_angle = %f ",
+                         yaw1[e] - yaw1[s], yaw2[e] - yaw2[s], vels[e] - vels[s], accu_angles[e] - accu_angles[s]);
+
+
+        }
+
+
+        // warn: roi may be out of window
+        // must check bounding
+        // Ensure ROI is within bounds
+        roi.x = roi.x < 0 ? 0 : roi.x;
+        roi.y = roi.y < 0 ? 0 : roi.y;
+        roi.width = roi.x + roi.width > frame.cols ? roi.width + frame.cols - (roi.x + roi.width) : roi.width;
+        roi.height = roi.y + roi.height > frame.rows ? roi.height + frame.rows - (roi.y + roi.height) : roi.height;
+        cvui::rect(frame, roi.x, roi.y, roi.width, roi.height, 0xff0000);
+#if 1
+        int s = cvui::mouse().x;
+        cvui::printf(frame, 0, 40, 0.3, 0xff0000, "at this time: yaw1 = %f, yaw2 = %f , vel = %f ,accu_angle = %f",
+                     yaw1[s], yaw2[s], vels[s], accu_angles[s]);
+
+        // update data
+        if (update && bt) {
+            if (cnt == 999) {
+                yaw1 = yaw1.cshift(1);
+                yaw2 = yaw2.cshift(1);
+                vels = vels.cshift(1);
+                accu_angles = accu_angles.cshift(1);
+            }
+            yaw1[cnt] = tf::getYaw(pose.orientation);
+            yaw2[cnt] = tf::getYaw(pose2.orientation);
+            vels[cnt] = (*vel_data).angular.z;
+
+            accu_angle += (*vel_data).angular.z * (tn - last_time).toSec();
+            accu_angle = atan2(sin(accu_angle), cos(accu_angle));
+            accu_angles[cnt] = accu_angle;
+
+            last_time = tn;
+            if (cnt < 999) {
+                cnt++;
+            }
+        }
+#endif
+
+        std::vector<double> few_points;
+        for (std::vector<double>::size_type i = 0; i < 30; i++) {
+            few_points.push_back(rand() + 0.);
+        }
+        // valarray to vector
+        vector<double> yaw1vec(&(yaw1[0]), &(yaw1[0]) + 1000);
+        vector<double> yaw2vec(&(yaw2[0]), &(yaw2[0]) + 1000);
+        vector<double> velvec(&(vels[0]), &(vels[0]) + 1000);
+        vector<double> anglevec(&(accu_angles[0]), &(accu_angles[0]) + 1000);
+
+        cvui::sparkline(frame, yaw1vec, 0, 100, 800, 100, 0x00ff00);
+        cvui::rect(frame, 0, 100, 800, 100, 0xff0000);
+
+        cvui::sparkline(frame, yaw2vec, 0, 200, 800, 100, 0xff0000);
+        cvui::rect(frame, 0, 200, 800, 100, 0xff0000);
+
+        cvui::sparkline(frame, velvec, 0, 300, 800, 100, 0x0000ff);
+        cvui::rect(frame, 0, 300, 800, 100, 0xff0000);
+
+        cvui::sparkline(frame, anglevec, 0, 400, 800, 100, 0x0000ff);
+        cvui::rect(frame, 0, 400, 800, 100, 0xff0000);
+
+        // all the behind the scenes magic to handle mouse clicks, etc.
+        cvui::update();
+
+        // Show everything on the screen
+        cv::imshow(WINDOW_NAME, frame);
+
+        // Check if ESC key was pressed
+        if (cv::waitKey(20) == 27) {
+            break;
+        }
+
 
 
 #if 0
-    cout<<"random generator\n"<<endl;
-    random_util::NormalGenerator rng(2,0.1);
-    vector<double> mean;
-    mean.push_back(1);
-    mean.push_back(1);
-    mean.push_back(1);
-    mean.push_back(1);
-
-    random_util::NormalVectorGenerator v_rng(mean,mean);
-    mean = v_rng.sample();
-    for(size_t i=0; i<10; ++i)
-        std::cout<<rng.sample()
-                 <<std::endl;
-
+        r.sleep();
 #endif
+    }
+
+
+
 }

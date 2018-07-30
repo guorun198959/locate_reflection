@@ -140,6 +140,7 @@ void BoardFinder::initParams() {
     static_angle_ = param_["static_angle"].As<double>(0.02);
     vel_angular_min_ = param_["vel_angular_min"].As<double>(0.3);
 
+    amcl_diff_max_ = param_["amcl_diff_max"].As<double>(2.3);
 }
 
 // get intialpose
@@ -711,9 +712,8 @@ vector<tuple<int, int> > BoardFinder::kdTreeMatch(vector<Position> detectPoints,
 
 
 
-    // add zero point
-    detectPoints.push_back(Position(0, 0, 0, 0, 0));
-    points.push_back(kdtree::Point2d(0.0, 0.0));
+
+
 
 
     // build k-d tree
@@ -737,6 +737,13 @@ vector<tuple<int, int> > BoardFinder::kdTreeMatch(vector<Position> detectPoints,
     if (results.empty()) {
         return assignments;
     }
+
+    // add zero point
+    detectPoints.push_back(Position(0, 0, 0, 0, 0));
+    realPoints.push_back(Position(0, 0, 0, 0, 0));
+    vector<int> res;
+    res.push_back(realPoints.size() - 1);
+    results.push_back(res);
 
     // add pattern match
     // 1 ============
@@ -837,6 +844,10 @@ vector<tuple<int, int> > BoardFinder::kdTreeMatch(vector<Position> detectPoints,
             // end loop i : ok
             // update assignment
             if (best_score_i > finalScore_) {
+                // fix remove invalid assign
+                if (results[i][best_id_i] > realPoints.size() - 1) {
+                    results[i].clear();
+                }
 
                 tuple<int, int> point_assign = std::make_tuple(i, results[i][best_id_i]);
 #if log_lv1
@@ -1053,7 +1064,8 @@ void BoardFinder::updateSharedData(tf::Transform mapTOodomTf) {
     tf::StampedTransform tmp_mapOdomTf_ = tf::StampedTransform(mapTOodomTf,
                                                                transform_expiration,
                                                                fixed_frame_id_, odom_frame_id_);
-
+    tf::Transform tmpamcl_mapOdomTf_;
+    tf::poseMsgToTF((*mapOdom_data_).pose.pose, tmpamcl_mapOdomTf_);
     double change_length = (tmp_mapOdomTf_ * mapOdomTf_.inverse()).getOrigin().length();
     double change_angle = tf::getYaw((tmp_mapOdomTf_ * mapOdomTf_.inverse()).getRotation());
 #if 1
@@ -1064,6 +1076,20 @@ void BoardFinder::updateSharedData(tf::Transform mapTOodomTf) {
 
     }
 #endif
+
+    // fix , avoid big change
+#if 1
+    change_length = (tmpamcl_mapOdomTf_ * mapOdomTf_.inverse()).getOrigin().length();
+    change_angle = tf::getYaw((tmpamcl_mapOdomTf_ * mapOdomTf_.inverse()).getRotation());
+    if (lastPublishOk_ &&
+        (change_length > amcl_diff_max_ * static_dist_ || fabs(change_angle) > amcl_diff_max_ * static_angle_)) {
+
+//        mapOdomTf_ = tmp_mapOdomTf_;
+        return;
+
+    }
+#endif
+
 
     mapOdomTf_ = tmp_mapOdomTf_;
 
@@ -1126,6 +1152,12 @@ void BoardFinder::computeUpdatedPose(vector<Position> realPoints, vector<Positio
         realyaw = std::atan2(realPoints[0].y - realPoints[size - 1].y, realPoints[0].x - realPoints[size - 1].x);
         detectyaw = std::atan2(detectPoints[0].y - detectPoints[size - 1].y,
                                detectPoints[0].x - detectPoints[size - 1].x);
+
+        //fix
+
+        if (fabs(realPoints[0].y - realPoints[size - 1].y) < 0.1 ||
+            fabs(detectPoints[0].y - detectPoints[size - 1].y) < 0.1)
+            return;
     } else {
         realX = realPoints[0].x;
         realY = realPoints[0].y;

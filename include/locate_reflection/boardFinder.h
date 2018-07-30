@@ -138,6 +138,7 @@ private:
     double static_dist_;
     double static_angle_;
     double vel_angular_min_;
+    double amcl_diff_max_;
 
     bool detectOne_;
 
