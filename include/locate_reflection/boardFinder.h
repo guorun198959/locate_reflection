@@ -128,7 +128,7 @@ private:
 
     // match param
     // parameter
-    double radius_;
+    double query_radius_;
     double distScoreBase_;
     double angleScoreBase_;
     double distRatio_;

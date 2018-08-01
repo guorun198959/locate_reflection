@@ -82,6 +82,7 @@ BoardFinder::BoardFinder(ros::NodeHandle nh, ros::NodeHandle nh_private) :
 
     } catch (...) {
         printf("read %s failed!!\n", filename.c_str());
+        exit(0);
 #if debug_bypass
         exit(0);
 #endif
@@ -120,16 +121,8 @@ BoardFinder::~BoardFinder() {
 }
 
 void BoardFinder::initParams() {
-    string filename = "board.yaml";
-    Yaml::Node param_;
-    try {
-        param_ = Yaml::readFile(filename);
 
-    } catch (...) {
-        printf("read %s failed!!\n", filename.c_str());
-        exit(0);
-    }
-    radius_ = param_["radius"].As<double>(0.1);
+    query_radius_ = param_["query_radius"].As<double>(1.5);
     distScoreBase_ = param_["distScoreBase"].As<double>(0.1);
     angleScoreBase_ = param_["angleScoreBase"].As<double>(0.1);
     distRatio_ = param_["distRatio"].As<double>(2);
@@ -140,7 +133,7 @@ void BoardFinder::initParams() {
     static_angle_ = param_["static_angle"].As<double>(0.02);
     vel_angular_min_ = param_["vel_angular_min"].As<double>(0.3);
 
-    amcl_diff_max_ = param_["amcl_diff_max"].As<double>(2.3);
+    amcl_diff_max_ = param_["amcl_diff_max"].As<double>(6);
 }
 
 // get intialpose
@@ -332,8 +325,8 @@ bool BoardFinder::getBoardPosition(vector<Position> &pointsW, vector<Position> &
 // read position from xml file
 // sort order in clockwise order; do this in transorm function
 bool BoardFinder::xmlToPoints(vector<Position> &pointsW) {
-    auto visibel_angle = param_["visibel_angle"].As<double>();
-    auto visibel_range_ratio = param_["visibel_range_ratio"].As<double>();
+    auto visibel_angle = param_["visibel_angle"].As<double>(1.4);
+    auto visibel_range_ratio = param_["visibel_range_ratio"].As<double>(0.4);
 
 
     pointsW.clear();
@@ -470,9 +463,9 @@ vector<Position> BoardFinder::detectBoard() {
     valarray<float> ys = ranges * sin(bear_);
 
 
-    auto intensity_thresh = param_["intensity_thresh"].As<float>();
-    auto neighbor_thresh = param_["neighbor_thresh"].As<float>();
-    auto length_thresh = param_["length_thresh"].As<float>();
+    auto intensity_thresh = param_["intensity_thresh"].As<float>(600);
+    auto neighbor_thresh = param_["neighbor_thresh"].As<float>(5);
+    auto length_thresh = param_["length_thresh"].As<float>(0.03);
 
     // point neighbor threash = num*bean_angle*distance;
     neighbor_thresh = neighbor_thresh * laser_data_.get()->angle_increment;
@@ -514,7 +507,7 @@ vector<Position> BoardFinder::detectBoard() {
     //publish pose
     geometry_msgs::PoseArray msg, lightpoints;
     msg.header.stamp = ros::Time::now();
-    msg.header.frame_id = "laser";
+    msg.header.frame_id = "map";
     lightpoints.header.stamp = ros::Time::now();
     lightpoints.header.frame_id = "laser";
     geometry_msgs::Pose pose, lightpose;
@@ -639,6 +632,9 @@ vector<Position> BoardFinder::detectBoard() {
                 pose.position.x = p.x;
                 pose.position.y = p.y;
                 pose.orientation = tf::createQuaternionMsgFromYaw(angle);
+                tf::Transform posetf_laser;
+                tf::poseMsgToTF(pose,posetf_laser);
+                tf::poseTFToMsg(mapOdomTf_*odomBaseTf_*baseLaserTf_*posetf_laser,pose);
                 msg.poses.push_back(pose);
             }
 
@@ -719,7 +715,6 @@ vector<tuple<int, int> > BoardFinder::kdTreeMatch(vector<Position> detectPoints,
     // build k-d tree
     kdtree::KdTree<kdtree::Point2d> kdtree(points);
 
-    double radius = param_["query_radius"].As<double>();;
     // query point
     vector<vector<int> > results;
     for (int i = 0; i < detectPoints.size(); i++) {
@@ -729,7 +724,7 @@ vector<tuple<int, int> > BoardFinder::kdTreeMatch(vector<Position> detectPoints,
 
 
         kdtree::Point2d query(detectPoints[i].x, detectPoints[i].y);
-        res = kdtree.queryIndex(query, kdtree::SearchMode::radius, radius);
+        res = kdtree.queryIndex(query, kdtree::SearchMode::radius, query_radius_);
 
         results.push_back(res);
     }
@@ -1223,9 +1218,9 @@ bool BoardFinder::resetAmcl() {
     double yaw = tf::getYaw(initial_pose.pose.orientation);
 
     // cov
-    auto x_cov = param_["x_cov"].As<double>();
-    auto y_cov = param_["y_cov"].As<double>();
-    auto yaw_cov = param_["yaw_cov"].As<double>();
+    auto x_cov = param_["x_cov"].As<double>(0.05);
+    auto y_cov = param_["y_cov"].As<double>(0.05);
+    auto yaw_cov = param_["yaw_cov"].As<double>(0.03);
 
 
     MatrixXd mat_1(2, 2);
@@ -1324,7 +1319,7 @@ void BoardFinder::findLocation() {
             // compute target vector
             computeUpdatedPose(realPointsW, detectPoints);
 #if 1
-            int resetDuration_ = param_["resetDuration"].As<int>(5);
+            int resetDuration_ = param_["resetDuration"].As<int>(3);
             matchNum_++;
 
             if (matchNum_ % resetDuration_ == 0) {
